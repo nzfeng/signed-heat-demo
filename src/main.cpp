@@ -36,7 +36,7 @@ std::unique_ptr<ManifoldSurfaceMesh> manifoldMesh;
 std::unique_ptr<VertexPositionGeometry> manifoldGeom;
 std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation> intTri;
 std::vector<Curve> curvesOnManifold, curvesOnIntrinsic;
-std::vector<Point> pointsOnManifold, pointsOnIntrinsic;
+std::vector<SurfacePoint> pointsOnManifold, pointsOnIntrinsic;
 std::vector<std::vector<pointcloud::Point>> POINTS_CURVES;
 std::vector<std::vector<Vertex>> POLYGON_CURVES;
 float REFINE_AREA_THRESH = std::numeric_limits<float>::infinity();
@@ -45,7 +45,7 @@ int MAX_INSERTIONS = -1;
 
 enum SolverMode { ExtrinsicMesh = 0, IntrinsicMesh };
 int SOLVER_MODE = SolverMode::ExtrinsicMesh;
-int CONSTRAINT_MODE = LevelSetConstraint::ZeroSet;
+LevelSetConstraint CONSTRAINT_MODE = LevelSetConstraint::ZeroSet;
 
 // Solvers & parameters
 float TCOEF = 1.0;
@@ -56,14 +56,15 @@ bool EXPORT_RESULT = false;
 bool VIZ = true;
 bool VERBOSE, HEADLESS, IS_POLY, PIECEWISE;
 std::unique_ptr<SignedHeatMethodSolver> SHM, intrinsicSolver;
-std::unique_ptr<PointCloudHeatSolver> PCS;
+std::unique_ptr<pointcloud::PointCloudHeatSolver> PCS;
 VertexData<double> PHI_VERTICES;
 CornerData<double> PHI_CORNERS;
 
 // Program variables
 std::string MESHNAME = "input mesh";
 std::string MESH_FILEPATH, MESHROOT, OUTPUT_FILENAME;
-std::string OUTPUT_DIR = "../export/";
+std::string OUTPUT_DIR = "../export";
+bool COMMON_SUBDIVISION = true;
 bool USE_BOUNDS = false;
 float LOWER_BOUND, UPPER_BOUND;
 
@@ -110,7 +111,7 @@ void callback() {
             }
 
             if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "source.obj");
+                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
                 if (phi.size() == mesh->nVertices()) {
                     exportSDF(*geometry, PHI_VERTICES, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
                 } else {
@@ -125,10 +126,11 @@ void callback() {
             if (!HEADLESS) psCloud->addScalarQuantity("GSD", phi)->setIsolinesEnabled(true)->setEnabled(true);
 
             if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, std::vector<Point>(), OUTPUT_DIR + "source.obj");
+                exportCurves(geometry->vertexPositions, CURVES, std::vector<Point>(), OUTPUT_DIR + "/source.obj");
                 exportSDF(pointGeom->positions, phi, OUTPUT_FILENAME);
             }
         } else if (MESH_MODE == MeshMode::Polygon) {
+            throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
             // TODO: Set up polygon mesh solver
             // SHM->setDiffusionTime(TCOEF);
             // SHM->setSoftWeight(SOFT_WEIGHT);
@@ -136,7 +138,7 @@ void callback() {
 
             if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", phi)->setEnabled(true);
             if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "source.obj");
+                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
                 exportSDF(*geometry, PHI_VERTICES, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
             }
         }
@@ -223,7 +225,7 @@ int main(int argc, char** argv) {
     OUTPUT_DIR = getHomeDirectory(OUTPUT_FILENAME);
     MESHROOT = polyscope::guessNiceNameFromPath(MESH_FILEPATH);
 
-    OUTPUT_FILENAME = outputFilename ? args::get(outputFilename) : OUTPUT_DIR + "GSD.obj";
+    OUTPUT_FILENAME = outputFilename ? args::get(outputFilename) : OUTPUT_DIR + "/GSD.obj";
     HEADLESS = headless;
     VERBOSE = verbose;
     PIECEWISE = piecewise;

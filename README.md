@@ -1,10 +1,12 @@
-# Signed Heat Method (surface domains)
+# signed-heat-demo (surface domains)
 
 C++ demo for "[A Heat Method for ](https://nzfeng.github.io/research/SignedHeatMethod/index.html)" by [Nicole Feng](https://nzfeng.github.io/index.html) and [Keenan Crane](https://www.cs.cmu.edu/~kmcrane/), presented at SIGGRAPH 2024.
 
 Project page with links to paper, pseudocode, supplementals, & videos: [link](https://nzfeng.github.io/research/SignedHeatMethod/index.html)
 
-This Github repository demonstrates the Signed Heat Method (SHM) on 2D surface domains, including triangle meshes, polygon meshes, and point clouds. If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/SHM-3D); and for digital surface domains, [this Github repository](https://github.com/signed-heat-method-digital). (These repos are separate since they involve other, potentially finicky, dependencies.)
+This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surface domains**, including triangle meshes, polygon meshes, and point clouds. The Signed Heat Method is implemented in [geometry-central](https://geometry-central.net/), this is just a demo application.
+
+If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/signed-heat-3d; and for digital surface domains, [this Github repository](https://github.com/signed-heat-method-digital). (These repos are separate since they involve additional dependencies.)
 
 ![teaser image](media/teaser.png)
 
@@ -34,7 +36,7 @@ If this code contributes to academic work, please cite as:
 This project depends on [`geometry-central`](https://geometry-central.net) for mesh computations, and [`Polyscope`](http://polyscope.run/) for visualization. These dependencies are added as git submodules, so copies will be downloaded locally when you clone this project as below.
 
 ```
-git clone --recursive https://github.com/nzfeng/SHM-2D.git
+git clone --recursive https://github.com/nzfeng/signed-heat-demo.git
 ```
 
 To run the project,
@@ -58,7 +60,7 @@ Triangle meshes support both signed & unsigned curve sources, and isolated point
 * `signed_curve`
 * `unsigned_curve`
 * `unsigned_point`
-followed by newline-separated values defining the nodes of the curve(s) or point sources. Nodes are _barycentric points_, and may lie on vertices, edges, or faces; each node is defined by a leading character, which can be either `v` (vertex), `e` (edge), `f` (face), followed by the element's index (using the convention of 0-indexing), and the appropriate number of barycentric coordinates. See note below about how indices/coordinates are specified.
+followed by newline-separated values defining the nodes of the curve(s) or point sources. Nodes are _barycentric points_, and may lie on vertices, edges, or faces; each node is defined by a leading character, which can be either `v` (vertex), `e` (edge), `f` (face), followed by the element's index (using the convention of 0-indexing), and the appropriate number of barycentric coordinates.
 
 Alternatively, one can specify curves as [OBJ line elements](https://en.wikipedia.org/wiki/Wavefront_.obj_file#Line_elements). Lines are specified with the leading char `l`, followed by white-space separated vertex indices --- these indices are _1-indexed_, following the OBJ file format convention.
 
@@ -89,7 +91,9 @@ signed_curve
 l 65 4 88 29 22 14 85 97 6 2 7 77
 ```
 
-On polygon meshes and point clouds, curve nodes are restricted to vertices, and unsigned curves and isolated point sources are not supported.
+While there can be an arbitrary number of curve segments per face, each curve segment must lie entirely within a face (meaning a single curve segment traversing more than one face should be split into multiple segments). Unsigned curves must be restricted to mesh vertices.
+
+On polygon meshes and point clouds, curve nodes must be restricted to vertices, and unsigned curves and isolated point sources are not supported.
 
 See in the `/input` directory for examples.
 

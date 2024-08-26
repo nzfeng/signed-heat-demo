@@ -437,11 +437,27 @@ std::vector<Curve> extractLevelsetAsCurves(IntrinsicGeometryInterface& geom, con
 }
 
 void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
-                  const std::string& filename) {
+                  const std::vector<SurfacePoint>& points, const std::string& dir) {
+
+    std::string pFilename = dir + "/points.obj";
+    std::string cFilename = dir + "/curves.obj";
+
+    // Write points.
+    std::fstream f;
+    f.open(pFilename, std::ios::out | std::ios::trunc);
+    if (f.is_open()) {
+        for (const SurfacePoint& p : points) {
+            Vector3 pos = p.interpolate(vertexPositions);
+            f << "v " << pos[0] << " " << pos[1] << " " << pos[2] << "\n";
+        }
+        f.close();
+        std::cerr << "File " << pFilename << " written succesfully." << std::endl;
+    } else {
+        std::cerr << "Could not save points '" << pFilename << "'!" << std::endl;
+    }
 
     std::fstream f;
-    f.open(filename, std::ios::out | std::ios::trunc);
-
+    f.open(cFilename, std::ios::out | std::ios::trunc);
     if (f.is_open()) {
         // Assume curves have already been organized into components to be "as connected as possible".
         for (const auto& curve : curves) {

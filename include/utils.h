@@ -1,7 +1,7 @@
 #pragma once
 
 #include "geometrycentral/pointcloud/point_cloud.h"
-#include "geometrycentral/surface/intrinsic_geometry_interface.h"
+#include "geometrycentral/surface/integer_coordinates_intrinsic_triangulation.h"
 #include "geometrycentral/surface/meshio.h"
 #include "geometrycentral/surface/signed_heat_method.h"
 #include "geometrycentral/surface/surface_mesh.h"
@@ -24,7 +24,7 @@ std::tuple<Vector3, Vector3> boundingBox(VertexPositionGeometry& geometry);
 
 // ================ TOPOLOGICAL
 
-bool isSourceGeometryConstrained(const std::vector<Curve>& curves, const std::vector<Point>& points);
+bool isSourceGeometryConstrained(const std::vector<Curve>& curves, const std::vector<SurfacePoint>& points);
 
 Halfedge determineHalfedgeFromVertices(const Vertex& vA, const Vertex& vB);
 
@@ -34,12 +34,12 @@ SurfacePoint reinterpretTo(const SurfacePoint& p, SurfaceMesh& otherMesh);
 
 std::string getHomeDirectory(const std::string& filepath);
 
-void readPointCloud(const std::string& filename, PointData<Vector3>& pointPositions, pointcloud::PointCloud& cloud,
-                    PointPositionGeometry& pointGeom);
+void readPointCloud(const std::string& filename, pointcloud::PointData<Vector3>& pointPositions,
+                    pointcloud::PointCloud& cloud, pointcloud::PointPositionGeometry& pointGeom);
 
-std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, const std::string& filename);
+std::tuple<std::vector<Curve>, std::vector<SurfacePoint>> readInput(SurfaceMesh& mesh, const std::string& filename);
 std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std::string& filename);
-std::vector<std::vector<Point>> readCurvePoints(pointcloud::PointCloud& cloud, const std::string& filename);
+std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointCloud& cloud, const std::string& filename);
 
 std::vector<std::vector<std::array<size_t, 2>>>
 getCurveComponents(SurfaceMesh& mesh, const std::vector<SurfacePoint>& curveNodes,
@@ -51,14 +51,27 @@ std::vector<Curve> extractLevelsetAsCurves(IntrinsicGeometryInterface& geom, con
 
 /* Export curves as OBJ. */
 void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
-                  const std::vector<Point>& points, const std::string& filename = "../export/curves.obj");
+                  const std::vector<SurfacePoint>& points, const std::string& dir = "../export");
 
 /* Export SDF on an extrinsic surface mesh. */
 void exportSDF(EmbeddedGeometryInterface& geom, const VertexData<double>& u, const std::string& filename,
                bool useBounds = false, double lowerBound = -1, double upperBound = -1);
 
+void exportSDF(EmbeddedGeometryInterface& geom, const CornerData<double>& u, const std::string& filename,
+               bool useBounds = false, double lowerBound = -1, double upperBound = -1);
+
+/* Export SDF on common subdivision. */
+void exportSDF(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
+               const VertexData<double>& u, const std::string& filename, bool useBounds = false, double lowerBound = -1,
+               double upperBound = -1);
+
+void exportSDF(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
+               const CornerData<double>& u, const std::string& filename, bool useBounds = false, double lowerBound = -1,
+               double upperBound = -1, bool normalize = true);
+
 /* Export SDF on a point cloud. */
-void exportSDF(const PointData<Vector3>& pointPositions, const PointData<double>& u, const std::string& filename);
+void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const pointcloud::PointData<double>& u,
+               const std::string& filename);
 
 // ===================== MESH MUTATION
 
@@ -67,25 +80,27 @@ createIntrinsicTriangulation(VertexPositionGeometry& geometry, ManifoldSurfaceMe
                              const std::vector<Curve>& curves);
 
 void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curve>& curves,
-                        const std::vector<Point>& points, std::unique_ptr<ManifoldSurfaceMesh>& manifoldMesh,
+                        const std::vector<SurfacePoint>& points, std::unique_ptr<ManifoldSurfaceMesh>& manifoldMesh,
                         std::unique_ptr<VertexPositionGeometry>& manifoldGeom, std::vector<Curve>& curvesOnManifold,
-                        std::vector<Point>& pointsOnManifold,
+                        std::vector<SurfacePoint>& pointsOnManifold,
                         std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation>& intTri,
                         std::unique_ptr<SignedHeatMethodSolver>& solver);
 
 void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& intTri,
                                                      const std::vector<Curve>& curvesOnManifold,
-                                                     const std::vector<Point>& pointsOnManifold,
+                                                     const std::vector<SurfacePoint>& pointsOnManifold,
                                                      std::vector<Curve>& curvesOnIntrinsic,
-                                                     std::vector<Point>& pointsOnIntrinsic);
+                                                     std::vector<SurfacePoint>& pointsOnIntrinsic);
 
 // ================ VISUALIZATION
 
 void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
-                  const std::vector<Point>& pointSources, const std::string& name = "input", bool display = true);
+                  const std::vector<SurfacePoint>& pointSources, const std::string& name = "input",
+                  bool display = true);
 
 void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<std::vector<Vertex>>& curves,
                   const std::string& name = "input", bool display = true);
 
-void displayInput(const PointData<Vector3>& positions, const std::vector<std::vector<Point>>& curves,
-                  const std::string& name = "input", bool display = true);
+void displayInput(const pointcloud::PointData<Vector3>& positions,
+                  const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& name = "input",
+                  bool display = true);
