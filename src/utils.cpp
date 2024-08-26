@@ -1,5 +1,11 @@
 #include "utils.h"
 
+int roundToNearestInt(double x) {
+
+    double y = x + 0.5 - (x < 0);
+    return (int)y;
+}
+
 // ================ GEOMETRIC
 
 Vector3 centroid(VertexPositionGeometry& geometry) {
@@ -47,15 +53,15 @@ std::tuple<Vector3, Vector3> boundingBox(VertexPositionGeometry& geometry) {
 
 // ================ TOPOLOGICAL
 
-bool isSourceGeometryConstrained(const std::vector<Curve>& curves, const std::vector<Point>& points) {
+bool isSourceGeometryConstrained(const std::vector<Curve>& curves, const std::vector<SurfacePoint>& points) {
 
     for (const Curve& curve : curves) {
         for (const SurfacePoint& p : curve.nodes) {
             if (p.type != SurfacePointType::Vertex) return false;
         }
     }
-    for (const Point& pt : points) {
-        if (pt.p.type != SurfacePointType::Vertex) return false;
+    for (const SurfacePoint& p : points) {
+        if (p.type != SurfacePointType::Vertex) return false;
     }
     return true;
 }
@@ -101,8 +107,7 @@ std::string getHomeDirectory(const std::string& filepath) {
     return dir;
 }
 
-void readPointCloud(const std::string& filename, pointcloud::PointData<Vector3>& pointPositions,
-                    pointcloud::PointCloud& cloud, pointcloud::PointPositionGeometry& pointGeom) {
+std::vector<Vector3> readPointCloud(const std::string& filename) {
 
     std::ifstream curr_file(filename.c_str());
     std::string line;
@@ -127,17 +132,13 @@ void readPointCloud(const std::string& filename, pointcloud::PointData<Vector3>&
     } else {
         std::cerr << "Could not open file <" << filename << ">." << std::endl;
     }
-
-    size_t nVertices = positions.size();
-    cloud = pointcloud::PointCloud(nVertices);
-    pointPositions = pointcloud::PointData<Vector3>(*cloud, positions);
-    pointGeom = pointcloud::PointPositionGeometry(cloud, pointPositions);
+    return positions;
 }
 
-std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, const std::string& filename) {
+std::tuple<std::vector<Curve>, std::vector<SurfacePoint>> readInput(SurfaceMesh& mesh, const std::string& filename) {
 
     std::vector<Curve> curves;
-    std::vector<Point> pointSources;
+    std::vector<SurfacePoint> pointSources;
 
     std::ifstream curr_file(filename.c_str());
     std::string line;
@@ -164,7 +165,7 @@ std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, 
                 if (curveMode) {
                     curves.back().nodes.push_back(pt);
                 } else {
-                    pointSources.back().p = pt;
+                    pointSources.push_back(pt);
                 }
             } else if (X == "e") {
                 iss >> idx >> tEdge;
@@ -172,7 +173,7 @@ std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, 
                 if (curveMode) {
                     curves.back().nodes.push_back(pt);
                 } else {
-                    pointSources.back().p = pt;
+                    pointSources.push_back(pt);
                 }
             } else if (X == "f") {
                 iss >> idx >> a >> b >> c;
@@ -181,7 +182,7 @@ std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, 
                 if (curveMode) {
                     curves.back().nodes.push_back(pt);
                 } else {
-                    pointSources.back().p = pt;
+                    pointSources.push_back(pt);
                 }
             } else if (X == "l") {
                 while (true) {
@@ -195,21 +196,17 @@ std::tuple<std::vector<Curve>, std::vector<Point>> readInput(SurfaceMesh& mesh, 
                 curveFlips.push_back(flip);
                 curveMode = true;
                 curves.emplace_back();
-                curves.back().sign = true;
+                curves.back().isSigned = true;
             } else if (X == "unsigned_curve") {
                 iss >> flip;
                 curveFlips.push_back(flip);
                 curveMode = true;
                 curves.emplace_back();
-                curves.back().sign = false;
+                curves.back().isSigned = false;
             } else if (X == "unsigned_point") {
                 curveMode = false;
-                pointSources.emplace_back();
-                pointSources.back().sign = false;
             } else if (X == "signed_point") {
                 curveMode = false;
-                pointSources.emplace_back();
-                pointSources.back().sign = true;
             }
         }
         curr_file.close();
@@ -274,9 +271,10 @@ std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std:
     return curves;
 }
 
-std::vector<std::vector<Point>> readCurvePoints(PointCloud& cloud, const std::string& filename) {
+std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointCloud& cloud,
+                                                            const std::string& filename) {
 
-    std::vector<std::vector<Point>> curves;
+    std::vector<std::vector<pointcloud::Point>> curves;
     std::ifstream curr_file(filename.c_str());
     std::string line;
     std::string X;
@@ -424,7 +422,7 @@ std::vector<Curve> extractLevelsetAsCurves(IntrinsicGeometryInterface& geom, con
     for (size_t i = 0; i < curveComponents.size(); i++) {
         curves.emplace_back();
         Curve& curve = curves.back();
-        curve.sign = true;
+        curve.isSigned = true;
         size_t nSegs = curveComponents[i].size();
         for (const auto& seg : curveComponents[i]) {
             curve.nodes.push_back(curveNodes[seg[0]]);
@@ -456,10 +454,10 @@ void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<
         std::cerr << "Could not save points '" << pFilename << "'!" << std::endl;
     }
 
-    std::fstream f;
     f.open(cFilename, std::ios::out | std::ios::trunc);
     if (f.is_open()) {
         // Assume curves have already been organized into components to be "as connected as possible".
+        size_t offset = 0;
         for (const auto& curve : curves) {
             size_t nNodes = curve.nodes.size();
             bool isClosed = (curve.nodes[0] == curve.nodes[nNodes - 1]);
@@ -472,13 +470,45 @@ void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<
             for (size_t i = 0; i < nNodes - 1; i++) {
                 f << (offset + i) + 1 << " "; // OBJ files are 1-indexed
             }
-            f << offset + (i + 1) % ub + 1 << "\n";
+            f << offset + (nNodes - 1) % ub + 1 << "\n";
             offset += ub;
         }
         f.close();
-        std::cerr << "File " << filename << " written succesfully." << std::endl;
+        std::cerr << "File " << cFilename << " written succesfully." << std::endl;
     } else {
-        std::cerr << "Could not save curves '" << filename << "'!" << std::endl;
+        std::cerr << "Could not save curves '" << cFilename << "'!" << std::endl;
+    }
+}
+
+void exportCurves(const pointcloud::PointData<Vector3>& positions,
+                  const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& dir) {
+
+    std::string cFilename = dir + "/curves.obj";
+
+    std::fstream f;
+    f.open(cFilename, std::ios::out | std::ios::trunc);
+    if (f.is_open()) {
+        // Assume curves have already been organized into components to be "as connected as possible".
+        size_t offset = 0;
+        for (const auto& curve : curves) {
+            size_t nNodes = curve.size();
+            bool isClosed = (curve[0] == curve[nNodes - 1]);
+            size_t ub = isClosed ? nNodes - 1 : nNodes;
+            for (size_t i = 0; i < ub; i++) {
+                Vector3 pos = positions[curve[i]];
+                f << "v " << pos[0] << " " << pos[1] << " " << pos[2] << "\n";
+            }
+            f << "l ";
+            for (size_t i = 0; i < nNodes - 1; i++) {
+                f << (offset + i) + 1 << " "; // OBJ files are 1-indexed
+            }
+            f << offset + (nNodes - 1) % ub + 1 << "\n";
+            offset += ub;
+        }
+        f.close();
+        std::cerr << "File " << cFilename << " written succesfully." << std::endl;
+    } else {
+        std::cerr << "Could not save curves '" << cFilename << "'!" << std::endl;
     }
 }
 
@@ -689,9 +719,9 @@ createIntrinsicTriangulation(VertexPositionGeometry& geometry, ManifoldSurfaceMe
 }
 
 void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curve>& curves,
-                        const std::vector<Point>& points, std::unique_ptr<ManifoldSurfaceMesh>& manifoldMesh,
+                        const std::vector<SurfacePoint>& points, std::unique_ptr<ManifoldSurfaceMesh>& manifoldMesh,
                         std::unique_ptr<VertexPositionGeometry>& manifoldGeom, std::vector<Curve>& curvesOnManifold,
-                        std::vector<Point>& pointsOnManifold,
+                        std::vector<SurfacePoint>& pointsOnManifold,
                         std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation>& intTri,
                         std::unique_ptr<SignedHeatMethodSolver>& solver) {
 
@@ -723,7 +753,7 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
         geometry.requireVertexIndices();
         for (const Curve& curve : curves) {
             curvesOnManifold.emplace_back();
-            curvesOnManifold.back().sign = curve.sign;
+            curvesOnManifold.back().isSigned = curve.isSigned;
             std::vector<Halfedge> currHalfedges;
             size_t nNodes = curve.nodes.size();
             for (size_t i = 0; i < nNodes - 1; i++) {
@@ -757,11 +787,9 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
 
         intTri->setMarkedEdges(markedEdges);
     }
-    for (const Point& pt : points) {
-        Point p;
-        p.sign = pt.sign;
-        p.p = reinterpretTo(pt.p, *manifoldMesh);
-        pointsOnManifold.push_back(p);
+    for (const SurfacePoint& p : points) {
+        SurfacePoint pt = reinterpretTo(p, *manifoldMesh);
+        pointsOnManifold.push_back(pt);
     }
 
     solver = std::unique_ptr<SignedHeatMethodSolver>(new SignedHeatMethodSolver(*intTri));
@@ -769,9 +797,9 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
 
 void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& intTri,
                                                      const std::vector<Curve>& curvesOnManifold,
-                                                     const std::vector<Point>& pointsOnManifold,
+                                                     const std::vector<SurfacePoint>& pointsOnManifold,
                                                      std::vector<Curve>& curvesOnIntrinsic,
-                                                     std::vector<Point>& pointsOnIntrinsic) {
+                                                     std::vector<SurfacePoint>& pointsOnIntrinsic) {
 
     // For some reason, need to call this first or else everything fails. Intrinsic mesh isn't built/indexed right.
     intTri.traceAllIntrinsicEdgesAlongInput();
@@ -781,7 +809,7 @@ void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& int
     pointsOnIntrinsic.clear();
     for (const Curve& curve : curvesOnManifold) {
         curvesOnIntrinsic.emplace_back();
-        curvesOnIntrinsic.back().sign = curve.sign;
+        curvesOnIntrinsic.back().isSigned = curve.isSigned;
         size_t nNodes = curve.nodes.size();
         for (size_t i = 0; i < nNodes - 1; i++) {
             const SurfacePoint& pA = curve.nodes[i];
@@ -800,18 +828,16 @@ void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& int
         if (curvesOnIntrinsic.back().nodes.size() < 2) curvesOnIntrinsic.pop_back();
     }
 
-    for (const Point& pt : pointsOnManifold) {
-        Point p;
-        p.sign = pt.sign;
-        p.p = reinterpretTo(pt.p, *(intTri.intrinsicMesh));
-        pointsOnIntrinsic.push_back(p);
+    for (const SurfacePoint& p : pointsOnManifold) {
+        SurfacePoint pt = reinterpretTo(p, *(intTri.intrinsicMesh));
+        pointsOnIntrinsic.push_back(pt);
     }
 }
 
 // ================ VISUALIZATION
 
 void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
-                  const std::vector<Point>& pointSources, const std::string& name, bool display) {
+                  const std::vector<SurfacePoint>& pointSources, const std::string& name, bool display) {
 
     std::vector<Vector3> nodes;
     std::vector<std::array<size_t, 2>> edges;
@@ -826,15 +852,15 @@ void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<
         for (size_t i = 0; i < N - 1; i++) {
             nodes.push_back(curve.nodes[i].interpolate(vertexPositions));
             edges.push_back({offset + i, offset + i + 1});
-            edgeColors.push_back(curve.sign ? signedColor : unsignedColor);
+            edgeColors.push_back(curve.isSigned ? signedColor : unsignedColor);
         }
         nodes.push_back(curve.nodes[N - 1].interpolate(vertexPositions));
         offset += N;
     }
-    for (const Point& point : pointSources) {
-        nodes.push_back(point.p.interpolate(vertexPositions));
+    for (const SurfacePoint& p : pointSources) {
+        nodes.push_back(p.interpolate(vertexPositions));
         edges.push_back({offset, offset});
-        point.sign ? edgeColors.push_back(signedColor) : edgeColors.push_back(unsignedColor);
+        edgeColors.push_back(unsignedColor);
         offset += 1;
     }
 
@@ -857,7 +883,7 @@ void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<
             nodes.push_back(vertexPositions[curve[i]]);
             edges.push_back({offset + i, offset + i + 1});
         }
-        nodes.push_back(vertexPositions[curve.nodes[N - 1]]);
+        nodes.push_back(vertexPositions[curve[N - 1]]);
         offset += N;
     }
 
@@ -866,8 +892,8 @@ void displayInput(const VertexData<Vector3>& vertexPositions, const std::vector<
     psCurve->setColor({1, 0.3, 0});
 }
 
-void displayInput(const pointcloud::PointData<Vector3>& positions, const std::vector<std::vector<Point>>& curves,
-                  const std::string& name, bool display) {
+void displayInput(const pointcloud::PointData<Vector3>& positions,
+                  const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& name, bool display) {
 
     std::vector<Vector3> nodes;
     std::vector<std::array<size_t, 2>> edges;
@@ -879,11 +905,32 @@ void displayInput(const pointcloud::PointData<Vector3>& positions, const std::ve
             nodes.push_back(positions[curve[i]]);
             edges.push_back({offset + i, offset + i + 1});
         }
-        nodes.push_back(positions[curve.nodes[N - 1]]);
+        nodes.push_back(positions[curve[N - 1]]);
         offset += N;
     }
 
     auto psCurve = polyscope::registerCurveNetwork(name, nodes, edges);
     psCurve->setEnabled(display);
     psCurve->setColor({1, 0.3, 0});
+}
+
+void visualizeIntrinsicEdges(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
+                             bool display) {
+
+    std::vector<Vector3> nodes;
+    std::vector<std::array<size_t, 2>> edges;
+    EdgeData<std::vector<SurfacePoint>> traces = intTri.traceAllIntrinsicEdgesAlongInput();
+    for (Edge e : intTri.intrinsicMesh->edges()) {
+        size_t N = nodes.size();
+        size_t M = traces[e].size();
+        for (const auto& pt : traces[e]) {
+            nodes.push_back(pt.interpolate(manifoldGeom.vertexPositions));
+        }
+        for (size_t i = 0; i < M - 1; i++) edges.push_back({N + i, N + i + 1});
+    }
+
+    auto intEdgeQ = polyscope::registerCurveNetwork("intrinsic edges", nodes, edges);
+    intEdgeQ->setEnabled(display);
+    intEdgeQ->setColor(polyscope::render::RGB_ORANGE);
+    intEdgeQ->setRadius(0.0005);
 }

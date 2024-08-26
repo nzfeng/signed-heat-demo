@@ -3,7 +3,6 @@
 #include "geometrycentral/surface/meshio.h"
 #include "geometrycentral/surface/surface_mesh_factories.h"
 #include "geometrycentral/surface/transfer_functions.h"
-#include "geometrycentral/surface/vertex_position_geometry.h"
 
 #include "polyscope/point_cloud.h"
 #include "polyscope/polyscope.h"
@@ -16,6 +15,12 @@
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
+
+#include <chrono>
+using std::chrono::duration;
+using std::chrono::duration_cast;
+using std::chrono::high_resolution_clock;
+using std::chrono::milliseconds;
 
 // == Geometry-central data
 std::unique_ptr<SurfaceMesh> mesh;
@@ -35,8 +40,8 @@ int MESH_MODE = MeshMode::Triangle;
 std::unique_ptr<ManifoldSurfaceMesh> manifoldMesh;
 std::unique_ptr<VertexPositionGeometry> manifoldGeom;
 std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation> intTri;
-std::vector<Curve> curvesOnManifold, curvesOnIntrinsic;
-std::vector<SurfacePoint> pointsOnManifold, pointsOnIntrinsic;
+std::vector<Curve> CURVES, curvesOnManifold, curvesOnIntrinsic;
+std::vector<SurfacePoint> POINTS, pointsOnManifold, pointsOnIntrinsic;
 std::vector<std::vector<pointcloud::Point>> POINTS_CURVES;
 std::vector<std::vector<Vertex>> POLYGON_CURVES;
 float REFINE_AREA_THRESH = std::numeric_limits<float>::infinity();
@@ -45,133 +50,174 @@ int MAX_INSERTIONS = -1;
 
 enum SolverMode { ExtrinsicMesh = 0, IntrinsicMesh };
 int SOLVER_MODE = SolverMode::ExtrinsicMesh;
-LevelSetConstraint CONSTRAINT_MODE = LevelSetConstraint::ZeroSet;
 
 // Solvers & parameters
-float TCOEF = 1.0;
-float SOFT_WEIGHT = 1.0;
-bool SOFT_CONSTRAINT = false;
+float TCOEF = 1.;
+bool TIME_UPDATED = false;
+SignedHeatOptions SHM_OPTIONS;
+int CONSTRAINT_MODE = static_cast<int>(LevelSetConstraint::ZeroSet);
 bool SOLVE_AS_POINT_CLOUD = false;
 bool EXPORT_RESULT = false;
 bool VIZ = true;
-bool VERBOSE, HEADLESS, IS_POLY, PIECEWISE;
+bool VERBOSE, HEADLESS, IS_POLY;
 std::unique_ptr<SignedHeatMethodSolver> SHM, intrinsicSolver;
 std::unique_ptr<pointcloud::PointCloudHeatSolver> PCS;
-VertexData<double> PHI_VERTICES;
-CornerData<double> PHI_CORNERS;
+VertexData<double> PHI;
 
 // Program variables
 std::string MESHNAME = "input mesh";
-std::string MESH_FILEPATH, MESHROOT, OUTPUT_FILENAME;
+std::string MESH_FILEPATH, MESHROOT, OUTPUT_FILENAME, DATA_DIR;
 std::string OUTPUT_DIR = "../export";
+bool VIS_INTRINSIC_MESH = false;
 bool COMMON_SUBDIVISION = true;
 bool USE_BOUNDS = false;
 float LOWER_BOUND, UPPER_BOUND;
+std::chrono::time_point<high_resolution_clock> t1, t2;
+std::chrono::duration<double, std::milli> ms_fp;
+
+void solve() {
+
+    if (MESH_MODE == MeshMode::Triangle) {
+        if (SOLVER_MODE == SolverMode::ExtrinsicMesh) {
+
+            SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
+            if (TIME_UPDATED) {
+                t1 = high_resolution_clock::now();
+                SHM->setDiffusionTimeCoefficient(TCOEF);
+                t2 = high_resolution_clock::now();
+                std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
+            }
+
+            t1 = high_resolution_clock::now();
+            PHI = SHM->computeDistance(CURVES, POINTS, SHM_OPTIONS);
+            t2 = high_resolution_clock::now();
+            ms_fp = t2 - t1;
+            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+
+            if (!HEADLESS) {
+                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::ZeroSet) {
+                    psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
+                } else {
+                    // If there's multiple level sets, it's not clear which one should be "zero".
+                    psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
+                }
+            }
+
+        } else {
+            // Create data structures, if they haven't been created already.
+            if (intTri == nullptr && mesh->isManifold() && mesh->isOriented() &&
+                isSourceGeometryConstrained(CURVES, POINTS)) {
+                setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold,
+                                   pointsOnManifold, intTri, intrinsicSolver);
+            }
+
+            // Solve
+            intrinsicSolver.reset(new SignedHeatMethodSolver(*intTri)); // in case intrinsic mesh has been updated
+            SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
+            if (TIME_UPDATED) {
+                t1 = high_resolution_clock::now();
+                intrinsicSolver->setDiffusionTimeCoefficient(TCOEF);
+                t2 = high_resolution_clock::now();
+                std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
+            }
+
+            t1 = high_resolution_clock::now();
+            VertexData<double> phi =
+                intrinsicSolver->computeDistance(curvesOnIntrinsic, pointsOnIntrinsic, SHM_OPTIONS);
+            t2 = high_resolution_clock::now();
+            ms_fp = t2 - t1;
+            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+
+            PHI = transferBtoA(*intTri, phi, TransferMethod::L2);
+            if (!HEADLESS) {
+                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::ZeroSet) {
+                    psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
+                } else {
+                    // If there's multiple level sets, it's not clear which one should be "zero".
+                    psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
+                }
+            }
+            // TODO: Option to export common subdivison
+        }
+
+        if (EXPORT_RESULT) {
+            exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
+            exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+        }
+
+    } else if (MESH_MODE == MeshMode::Points) {
+        // Reset point cloud solver in case parameters changed.
+        if (TIME_UPDATED) {
+            t1 = high_resolution_clock::now();
+            PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
+            t2 = high_resolution_clock::now();
+            std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
+        }
+
+        t1 = high_resolution_clock::now();
+        pointcloud::PointData<double> phi =
+            PCS->computeSignedDistance(POINTS_CURVES, static_cast<LevelSetConstraint>(CONSTRAINT_MODE));
+        t2 = high_resolution_clock::now();
+        ms_fp = t2 - t1;
+        std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+
+        if (!HEADLESS) psCloud->addScalarQuantity("GSD", phi)->setIsolinesEnabled(true)->setEnabled(true);
+
+        if (EXPORT_RESULT) {
+            exportCurves(pointGeom->positions, POINTS_CURVES, OUTPUT_DIR + "/source.obj");
+            exportSDF(pointGeom->positions, phi, OUTPUT_FILENAME);
+        }
+    } else if (MESH_MODE == MeshMode::Polygon) {
+        throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
+        // TODO: Set up polygon mesh solver
+        // SHM->setDiffusionTimeCoefficient(TCOEF);
+        // Vector<double> phi = SHM->solve(CURVES, POINTS, SHM_OPTIONS);
+
+        // if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", phi)->setEnabled(true);
+        // if (EXPORT_RESULT) {
+        //     exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
+        //     exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+        // }
+    }
+
+    TIME_UPDATED = false;
+}
 
 void callback() {
 
     if (ImGui::Button("Solve")) {
-
-        if (MESH_MODE == MeshMode::Triangle) {
-            if (SOLVER_MODE == SolverMode::ExtrinsicMesh) {
-                SHM->setDiffusionTime(TCOEF);
-                Vector<double> phi =
-                    SHM->computeDistance(CURVES, POINTS, CONSTRAINT_MODE, SOFT_CONSTRAINT, SOFT_WEIGHT, PIECEWISE);
-
-                if (phi.size() == mesh->nVertices()) {
-                    PHI_VERTICES = VertexData<double>(*mesh, phi);
-                    if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", PHI_VERTICES)->setEnabled(true);
-                } else {
-                    PHI_CORNERS = CornerData<double>(*mesh, phi);
-                    if (!HEADLESS)
-                        psMesh->addCornerScalarData("GSD", PHI_CORNERS)->setIsolinesEnabled(true)->setEnabled(true);
-                }
-
-            } else {
-                // Create data structures, if they haven't been created already.
-                if (intTri == nullptr && mesh->isManifold() && mesh->isOriented() &&
-                    isSourceGeometryConstrained(CURVES, POINTS)) {
-                    setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold,
-                                       pointsOnManifold, intTri, intrinsicSolver);
-                }
-
-                // Solve
-                intrinsicSolver.reset(new SignedHeatMethodSolver(*intTri));
-                intrinsicSolver->setDiffusionTime(TCOEF);
-                Vector<double> phi = intrinsicSolver->solve(curvesOnIntrinsic, pointsOnIntrinsic, CONSTRAINT_MODE,
-                                                            SOFT_CONSTRAINT, SOFT_WEIGHT, PIECEWISE);
-
-                if (phi.size() == intTri->intrinsicMesh->nVertices()) {
-                    PHI_VERTICES =
-                        transferBtoA(*intTri, VertexData<double>(*(intTri->intrinsicMesh), phi), TransferMethod::L2);
-                    if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", PHI_VERTICES)->setEnabled(true);
-                } else {
-                    // TODO: transfer & visualize CornerData
-                }
-            }
-
-            if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
-                if (phi.size() == mesh->nVertices()) {
-                    exportSDF(*geometry, PHI_VERTICES, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-                } else {
-                    exportSDF(*geometry, PHI_CORNERS, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-                }
-            }
-
-        } else if (MESH_MODE == MeshMode::POINTS) {
-            // Reset point cloud solver in case parameters changed.
-            PCS.reset(new PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
-            pointcloud::PointData<double> phi = PCS->computeSignedDistance(POINTS_CURVES, CONSTRAINT_MODE);
-            if (!HEADLESS) psCloud->addScalarQuantity("GSD", phi)->setIsolinesEnabled(true)->setEnabled(true);
-
-            if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, std::vector<Point>(), OUTPUT_DIR + "/source.obj");
-                exportSDF(pointGeom->positions, phi, OUTPUT_FILENAME);
-            }
-        } else if (MESH_MODE == MeshMode::Polygon) {
-            throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
-            // TODO: Set up polygon mesh solver
-            // SHM->setDiffusionTime(TCOEF);
-            // SHM->setSoftWeight(SOFT_WEIGHT);
-            // Vector<double> phi = SHM->solve(CURVES, POINTS, CONSTRAINT_MODE, SOFT_CONSTRAINT);
-
-            if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", phi)->setEnabled(true);
-            if (EXPORT_RESULT) {
-                exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
-                exportSDF(*geometry, PHI_VERTICES, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-            }
-        }
+        solve();
     }
 
     if (ImGui::TreeNode("Solve options")) {
 
-        ImGui::InputFloat("tCoef", &TCOEF);
+        if (ImGui::InputFloat("tCoef", &TCOEF)) TIME_UPDATED = true;
 
-        ImGui::RadioButton("Constrain zero set", &CONSTRAINT_MODE, LevelSetConstraint::ZeroSet);
-        ImGui::RadioButton("Constrain multiple levelsets", &CONSTRAINT_MODE, LevelSetConstraint::Multiple);
-        ImGui::RadioButton("No levelset constraints", &CONSTRAINT_MODE, LevelSetConstraint::None);
+        ImGui::RadioButton("Constrain zero set", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::ZeroSet));
+        ImGui::RadioButton("Constrain multiple levelsets", &CONSTRAINT_MODE,
+                           static_cast<int>(LevelSetConstraint::Multiple));
+        ImGui::RadioButton("No levelset constraints", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::None));
 
-        ImGui::Checkbox("Soft levelset constraint", &SOFT_CONSTRAINT);
-        ImGui::InputFloat("soft weight", &SOFT_WEIGHT);
+        ImGui::InputDouble("soft weight", &(SHM_OPTIONS.softLevelSetWeight));
 
         ImGui::Checkbox("Export result", &EXPORT_RESULT);
 
         ImGui::TreePop();
     }
 
-    if (MESH_MODE == MeshMode::TRIANGLE && mesh->isManifold() && intTri != nullptr) {
+    if (MESH_MODE == MeshMode::Triangle && mesh->isManifold() && intTri != nullptr) {
         ImGui::RadioButton("Solve on extrinsic mesh", &SOLVER_MODE, SolverMode::ExtrinsicMesh);
         ImGui::RadioButton("Solve on intrinsic mesh", &SOLVER_MODE, SolverMode::IntrinsicMesh);
 
         if (ImGui::TreeNode("Intrinsic mesh improvement")) {
             if (ImGui::Checkbox("Show intrinsic edges", &VIS_INTRINSIC_MESH)) {
-                visualizeIntrinsicEdges(*intTri, *manifoldGeom, true);
+                visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
             }
 
             if (ImGui::Button("Flip to Delaunay")) {
                 intTri->flipToDelaunay();
-                visualizeIntrinsicEdges(*intTri, *manifoldGeom, true);
+                VIS_INTRINSIC_MESH = true;
+                visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
             }
 
             ImGui::InputFloat("Angle thresh", &REFINE_ANGLE_THRESH);
@@ -179,7 +225,8 @@ void callback() {
             ImGui::InputInt("Max insert", &MAX_INSERTIONS);
             if (ImGui::Button("Delaunay refine")) {
                 intTri->delaunayRefine(REFINE_ANGLE_THRESH, REFINE_AREA_THRESH, MAX_INSERTIONS);
-                visualizeIntrinsicEdges(*intTri, *manifoldGeom, true);
+                VIS_INTRINSIC_MESH = true;
+                visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
             }
 
             ImGui::TreePop();
@@ -198,7 +245,6 @@ int main(int argc, char** argv) {
 
     args::Group group(parser);
     args::Flag points(group, "point", "Solve as point cloud.", {"pc", "points"});
-    args::Flag piecewise(group, "piecewise", "Solve for a piecewise SDF.", {"L1", "piecewise"});
     args::Flag verbose(group, "verbose", "Verbose output", {"V", "verbose"});
     args::Flag headless(group, "headless", "Don't use the GUI.", {"h", "headless"});
 
@@ -228,12 +274,17 @@ int main(int argc, char** argv) {
     OUTPUT_FILENAME = outputFilename ? args::get(outputFilename) : OUTPUT_DIR + "/GSD.obj";
     HEADLESS = headless;
     VERBOSE = verbose;
-    PIECEWISE = piecewise;
 
     if (points) {
         MESH_MODE = MeshMode::Points;
-        readPointCloud(MESH_FILEPATH, pointPositions, *cloud, *pointGeom);
-        PCS.reset(new PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
+        std::vector<Vector3> positions = readPointCloud(MESH_FILEPATH);
+        size_t nPts = positions.size();
+        cloud = std::unique_ptr<pointcloud::PointCloud>(new pointcloud::PointCloud(nPts));
+        pointPositions = pointcloud::PointData<Vector3>(*cloud);
+        for (size_t i = 0; i < nPts; i++) pointPositions[i] = positions[i];
+        pointGeom = std::unique_ptr<pointcloud::PointPositionGeometry>(
+            new pointcloud::PointPositionGeometry(*cloud, pointPositions));
+        PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
     } else {
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
         if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
@@ -245,6 +296,14 @@ int main(int argc, char** argv) {
         switch (MESH_MODE) {
             case (MeshMode::Triangle): {
                 std::tie(CURVES, POINTS) = readInput(*mesh, filename);
+                if (mesh->isManifold() && mesh->isOriented() && isSourceGeometryConstrained(CURVES, POINTS)) {
+                    std::cerr << "Constructing intrinsic solver..." << std::endl;
+                    t1 = high_resolution_clock::now();
+                    setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold,
+                                       pointsOnManifold, intTri, intrinsicSolver);
+                    t2 = high_resolution_clock::now();
+                    std::cerr << "Intrinsic solver construction time (s): " << ms_fp.count() / 1000. << std::endl;
+                }
                 break;
             }
             case (MeshMode::Polygon): {
@@ -265,15 +324,13 @@ int main(int argc, char** argv) {
 
         switch (MESH_MODE) {
             case (MeshMode::Triangle): {
-                psMesh = polyscope::registerSurfaceMesh(MESHNAME, getGeom().inputVertexPositions,
-                                                        getMesh().getFaceVertexList());
-                psMesh->setAllPermutations(polyscopePermutations(getMesh()));
+                psMesh = polyscope::registerSurfaceMesh(MESHNAME, geometry->vertexPositions, mesh->getFaceVertexList());
+                psMesh->setAllPermutations(polyscopePermutations(*mesh));
                 displayInput(geometry->vertexPositions, CURVES, POINTS);
                 break;
             }
             case (MeshMode::Polygon): {
-                psMesh = polyscope::registerSurfaceMesh(MESHNAME, getGeom().inputVertexPositions,
-                                                        getMesh().getFaceVertexList());
+                psMesh = polyscope::registerSurfaceMesh(MESHNAME, geometry->vertexPositions, mesh->getFaceVertexList());
                 displayInput(geometry->vertexPositions, POLYGON_CURVES);
                 break;
             }
