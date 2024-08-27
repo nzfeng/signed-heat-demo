@@ -124,3 +124,9 @@ void displayInput(const pointcloud::PointData<Vector3>& positions,
 
 void visualizeIntrinsicEdges(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
                              bool display = true);
+
+VertexData<double> visualizeOnCommonSubdivision(IntegerCoordinatesIntrinsicTriangulation& intTri,
+                                                VertexPositionGeometry& manifoldGeom, VertexData<Vector3>& csPositions,
+                                                std::unique_ptr<VertexPositionGeometry>& csGeom,
+                                                const VertexData<double>& phi, const std::string& quantityName,
+                                                bool rebuild = true, bool divergingColormap = true);

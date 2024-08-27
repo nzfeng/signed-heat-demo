@@ -37,8 +37,9 @@ enum MeshMode { Triangle = 0, Polygon, Points };
 int MESH_MODE = MeshMode::Triangle;
 
 // == Intrinsic triangulation stuff. All remeshing is performed on the manifold mesh.
+VertexData<Vector3> csPositions;
 std::unique_ptr<ManifoldSurfaceMesh> manifoldMesh;
-std::unique_ptr<VertexPositionGeometry> manifoldGeom;
+std::unique_ptr<VertexPositionGeometry> manifoldGeom, csGeom;
 std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation> intTri;
 std::vector<Curve> CURVES, curvesOnManifold, curvesOnIntrinsic;
 std::vector<SurfacePoint> POINTS, pointsOnManifold, pointsOnIntrinsic;
@@ -47,6 +48,7 @@ std::vector<std::vector<Vertex>> POLYGON_CURVES;
 float REFINE_AREA_THRESH = std::numeric_limits<float>::infinity();
 float REFINE_ANGLE_THRESH = 25.;
 int MAX_INSERTIONS = -1;
+bool INTTRI_UPDATED = false;
 
 enum SolverMode { ExtrinsicMesh = 0, IntrinsicMesh };
 int SOLVER_MODE = SolverMode::ExtrinsicMesh;
@@ -60,7 +62,7 @@ bool SOLVE_AS_POINT_CLOUD = false;
 bool EXPORT_RESULT = false;
 bool VIZ = true;
 bool VERBOSE, HEADLESS, IS_POLY;
-std::unique_ptr<SignedHeatMethodSolver> SHM, intrinsicSolver;
+std::unique_ptr<SignedHeatMethodSolver> signedHeatSolver, intrinsicSolver;
 std::unique_ptr<pointcloud::PointCloudHeatSolver> PCS;
 VertexData<double> PHI;
 
@@ -75,27 +77,39 @@ float LOWER_BOUND, UPPER_BOUND;
 std::chrono::time_point<high_resolution_clock> t1, t2;
 std::chrono::duration<double, std::milli> ms_fp;
 
+
+void ensureHaveIntrinsicSolver() {
+
+    if (intrinsicSolver != nullptr) return;
+
+    if (mesh->isManifold() && mesh->isOriented() && isSourceGeometryConstrained(CURVES, POINTS)) {
+        std::cerr << "Constructing intrinsic solver..." << std::endl;
+        t1 = high_resolution_clock::now();
+        setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold, pointsOnManifold,
+                           intTri, intrinsicSolver);
+        t2 = high_resolution_clock::now();
+        ms_fp = t2 - t1;
+        std::cerr << "Intrinsic solver construction time (s): " << ms_fp.count() / 1000. << std::endl;
+    }
+}
+
 void solve() {
 
     if (MESH_MODE == MeshMode::Triangle) {
         if (SOLVER_MODE == SolverMode::ExtrinsicMesh) {
 
             SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
-            if (TIME_UPDATED) {
-                t1 = high_resolution_clock::now();
-                SHM->setDiffusionTimeCoefficient(TCOEF);
-                t2 = high_resolution_clock::now();
-                std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
-            }
+            if (TIME_UPDATED) signedHeatSolver->setDiffusionTimeCoefficient(TCOEF);
 
             t1 = high_resolution_clock::now();
-            PHI = SHM->computeDistance(CURVES, POINTS, SHM_OPTIONS);
+            std::cerr << "Computing distance..." << std::endl;
+            PHI = signedHeatSolver->computeDistance(CURVES, POINTS, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
             std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
             if (!HEADLESS) {
-                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::ZeroSet) {
+                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
                     psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
                 } else {
                     // If there's multiple level sets, it's not clear which one should be "zero".
@@ -104,22 +118,15 @@ void solve() {
             }
 
         } else {
-            // Create data structures, if they haven't been created already.
-            if (intTri == nullptr && mesh->isManifold() && mesh->isOriented() &&
-                isSourceGeometryConstrained(CURVES, POINTS)) {
-                setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold,
-                                   pointsOnManifold, intTri, intrinsicSolver);
+            ensureHaveIntrinsicSolver();
+            determineSourceGeometryOnIntrinsicTriangulation(*intTri, curvesOnManifold, pointsOnManifold,
+                                                            curvesOnIntrinsic, pointsOnIntrinsic);
+            if (INTTRI_UPDATED) {
+                intrinsicSolver.reset(new SignedHeatMethodSolver(*intTri));
+                INTTRI_UPDATED = false;
             }
-
-            // Solve
-            intrinsicSolver.reset(new SignedHeatMethodSolver(*intTri)); // in case intrinsic mesh has been updated
             SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
-            if (TIME_UPDATED) {
-                t1 = high_resolution_clock::now();
-                intrinsicSolver->setDiffusionTimeCoefficient(TCOEF);
-                t2 = high_resolution_clock::now();
-                std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
-            }
+            if (TIME_UPDATED) intrinsicSolver->setDiffusionTimeCoefficient(TCOEF);
 
             t1 = high_resolution_clock::now();
             VertexData<double> phi =
@@ -130,11 +137,13 @@ void solve() {
 
             PHI = transferBtoA(*intTri, phi, TransferMethod::L2);
             if (!HEADLESS) {
-                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::ZeroSet) {
+                if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
                     psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
+                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, true);
                 } else {
                     // If there's multiple level sets, it's not clear which one should be "zero".
                     psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
+                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, false);
                 }
             }
             // TODO: Option to export common subdivison
@@ -147,12 +156,7 @@ void solve() {
 
     } else if (MESH_MODE == MeshMode::Points) {
         // Reset point cloud solver in case parameters changed.
-        if (TIME_UPDATED) {
-            t1 = high_resolution_clock::now();
-            PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
-            t2 = high_resolution_clock::now();
-            std::cerr << "Factorization time (s): " << ms_fp.count() / 1000. << std::endl;
-        }
+        if (TIME_UPDATED) PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
 
         t1 = high_resolution_clock::now();
         pointcloud::PointData<double> phi =
@@ -170,8 +174,8 @@ void solve() {
     } else if (MESH_MODE == MeshMode::Polygon) {
         throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
         // TODO: Set up polygon mesh solver
-        // SHM->setDiffusionTimeCoefficient(TCOEF);
-        // Vector<double> phi = SHM->solve(CURVES, POINTS, SHM_OPTIONS);
+        // signedHeatSolver->setDiffusionTimeCoefficient(TCOEF);
+        // Vector<double> phi = signedHeatSolver->solve(CURVES, POINTS, SHM_OPTIONS);
 
         // if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", phi)->setEnabled(true);
         // if (EXPORT_RESULT) {
@@ -193,6 +197,7 @@ void callback() {
 
         if (ImGui::InputFloat("tCoef", &TCOEF)) TIME_UPDATED = true;
 
+        ImGui::Checkbox("Preserve source normals", &SHM_OPTIONS.preserveSourceNormals);
         ImGui::RadioButton("Constrain zero set", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::ZeroSet));
         ImGui::RadioButton("Constrain multiple levelsets", &CONSTRAINT_MODE,
                            static_cast<int>(LevelSetConstraint::Multiple));
@@ -205,28 +210,34 @@ void callback() {
         ImGui::TreePop();
     }
 
-    if (MESH_MODE == MeshMode::Triangle && mesh->isManifold() && intTri != nullptr) {
+    if (MESH_MODE == MeshMode::Triangle && mesh->isManifold()) {
         ImGui::RadioButton("Solve on extrinsic mesh", &SOLVER_MODE, SolverMode::ExtrinsicMesh);
         ImGui::RadioButton("Solve on intrinsic mesh", &SOLVER_MODE, SolverMode::IntrinsicMesh);
 
         if (ImGui::TreeNode("Intrinsic mesh improvement")) {
             if (ImGui::Checkbox("Show intrinsic edges", &VIS_INTRINSIC_MESH)) {
+                ensureHaveIntrinsicSolver();
                 visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
+                INTTRI_UPDATED = true;
             }
 
             if (ImGui::Button("Flip to Delaunay")) {
+                ensureHaveIntrinsicSolver();
                 intTri->flipToDelaunay();
                 VIS_INTRINSIC_MESH = true;
                 visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
+                INTTRI_UPDATED = true;
             }
 
             ImGui::InputFloat("Angle thresh", &REFINE_ANGLE_THRESH);
             ImGui::InputFloat("Area thresh", &REFINE_AREA_THRESH);
             ImGui::InputInt("Max insert", &MAX_INSERTIONS);
             if (ImGui::Button("Delaunay refine")) {
+                ensureHaveIntrinsicSolver();
                 intTri->delaunayRefine(REFINE_ANGLE_THRESH, REFINE_AREA_THRESH, MAX_INSERTIONS);
                 VIS_INTRINSIC_MESH = true;
                 visualizeIntrinsicEdges(*intTri, *manifoldGeom, VIS_INTRINSIC_MESH);
+                INTTRI_UPDATED = true;
             }
 
             ImGui::TreePop();
@@ -288,6 +299,7 @@ int main(int argc, char** argv) {
     } else {
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
         if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
+        signedHeatSolver = std::unique_ptr<SignedHeatMethodSolver>(new SignedHeatMethodSolver(*geometry));
     }
 
     // Load source geometry.
@@ -296,14 +308,6 @@ int main(int argc, char** argv) {
         switch (MESH_MODE) {
             case (MeshMode::Triangle): {
                 std::tie(CURVES, POINTS) = readInput(*mesh, filename);
-                if (mesh->isManifold() && mesh->isOriented() && isSourceGeometryConstrained(CURVES, POINTS)) {
-                    std::cerr << "Constructing intrinsic solver..." << std::endl;
-                    t1 = high_resolution_clock::now();
-                    setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold,
-                                       pointsOnManifold, intTri, intrinsicSolver);
-                    t2 = high_resolution_clock::now();
-                    std::cerr << "Intrinsic solver construction time (s): " << ms_fp.count() / 1000. << std::endl;
-                }
                 break;
             }
             case (MeshMode::Polygon): {

@@ -934,3 +934,39 @@ void visualizeIntrinsicEdges(IntegerCoordinatesIntrinsicTriangulation& intTri, V
     intEdgeQ->setColor(polyscope::render::RGB_ORANGE);
     intEdgeQ->setRadius(0.0005);
 }
+
+/*
+ * Display VertexData quantity on the common subdivision of an intrinsic triangulation.
+ */
+VertexData<double> visualizeOnCommonSubdivision(IntegerCoordinatesIntrinsicTriangulation& intTri,
+                                                VertexPositionGeometry& manifoldGeom, VertexData<Vector3>& csPositions,
+                                                std::unique_ptr<VertexPositionGeometry>& csGeom,
+                                                const VertexData<double>& w, const std::string& name, bool rebuild,
+                                                bool divergingColormap) {
+
+    CommonSubdivision& cs = intTri.getCommonSubdivision();
+    cs.constructMesh();
+    // Linearly interpolate data from intrinsic mesh to the common subdivision.
+    VertexData<double> cs_w = cs.interpolateAcrossB(w);
+
+    ManifoldSurfaceMesh& csMesh = *cs.mesh;
+    csPositions = cs.interpolateAcrossA(manifoldGeom.vertexPositions);
+    csGeom.reset(new VertexPositionGeometry(csMesh, csPositions));
+
+    if (rebuild) {
+        // Register and display with Polyscope
+        polyscope::SurfaceMesh* psCsMesh =
+            polyscope::registerSurfaceMesh("common subdivision", csPositions, csMesh.getFaceVertexList());
+        psCsMesh->setAllPermutations(polyscopePermutations(csMesh));
+        psCsMesh->setEnabled(true);
+    }
+    if (divergingColormap) {
+        polyscope::getSurfaceMesh("common subdivision")->addVertexSignedDistanceQuantity(name, cs_w)->setEnabled(true);
+    } else {
+        polyscope::getSurfaceMesh("common subdivision")
+            ->addVertexScalarQuantity(name, cs_w)
+            ->setIsolinesEnabled(true)
+            ->setEnabled(true);
+    }
+    return cs_w;
+}
