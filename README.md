@@ -6,7 +6,7 @@ Project page with links to paper, pseudocode, supplementals, & videos: [link](ht
 
 This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surface domains**, including triangle meshes, polygon meshes, and point clouds. The Signed Heat Method is implemented in [geometry-central](https://geometry-central.net/), this is just a demo application.
 
-If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/signed-heat-3d; and for digital surface domains, [this Github repository](https://github.com/signed-heat-method-digital). (These repos are separate since they involve additional dependencies.)
+If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/signed-heat-3d).
 
 ![teaser image](media/teaser.png)
 
@@ -41,7 +41,7 @@ git clone --recursive https://github.com/nzfeng/signed-heat-demo.git
 
 To run the project,
 ```
-cd SHM-2D
+cd signed-heat-demo
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..            # use `Debug` instead of `Release` if you want debug mode
 make -j8                                       # or however many cores you want to use
@@ -114,7 +114,7 @@ In addition to the mesh file, can pass several arguments to the command line, in
 
 ## Intrinsic re-meshing
 
-The GUI can perform intrinsic Delaunay refinement for better numerical behavior. If you choose to solve on an intrinsic mesh, exporting the solution will export the solution on the original mesh, using [L2 optimal transfer](http://geometry-central.net/surface/intrinsic_triangulations/function_transfer/#l2-optimal-transfer).
+The GUI can perform intrinsic Delaunay refinement for better numerical behavior. If you choose to solve on an intrinsic mesh, you can either export the solution on the original mesh, using [L2 optimal transfer](http://geometry-central.net/surface/intrinsic_triangulations/function_transfer/#l2-optimal-transfer), or on the [common subdivision](https://geometry-central.net/surface/intrinsic_triangulations/common_subdivision/).
 
 ![screenshot of an intrinsically-remeshed mesh](media/IntrinsicRemesh.png)
 
@@ -137,4 +137,4 @@ The `render/` directory contains an example Blender file (`Example.blend`) that 
 
 ![Screenshot of the provided Blender file](media/Blender.png)
 
-**TODO**: function normalization
+*Warning*: By default, solutions will be normalized so that their range (the difference between the minimum and maximum values) is 1. The GUI menu has options to manually specify a lower and upper bounds used for normalization.

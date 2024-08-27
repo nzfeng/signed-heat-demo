@@ -27,7 +27,7 @@ std::unique_ptr<SurfaceMesh> mesh;
 std::unique_ptr<VertexPositionGeometry> geometry;
 std::unique_ptr<pointcloud::PointCloud> cloud;
 std::unique_ptr<pointcloud::PointPositionGeometry> pointGeom;
-pointcloud::PointData<Vector3> pointPositions;
+pointcloud::PointData<Vector3> pointPositions, pointNormals;
 
 // Polyscope stuff
 polyscope::SurfaceMesh* psMesh;
@@ -62,8 +62,8 @@ bool SOLVE_AS_POINT_CLOUD = false;
 bool EXPORT_RESULT = false;
 bool VIZ = true;
 bool VERBOSE, HEADLESS, IS_POLY;
-std::unique_ptr<SignedHeatMethodSolver> signedHeatSolver, intrinsicSolver;
-std::unique_ptr<pointcloud::PointCloudHeatSolver> PCS;
+std::unique_ptr<SignedHeatSolver> signedHeatSolver, intrinsicSolver;
+std::unique_ptr<pointcloud::PointCloudHeatSolver> pointCloudSolver;
 VertexData<double> PHI;
 
 // Program variables
@@ -74,6 +74,7 @@ bool VIS_INTRINSIC_MESH = false;
 bool COMMON_SUBDIVISION = true;
 bool USE_BOUNDS = false;
 float LOWER_BOUND, UPPER_BOUND;
+bool CONSTRAINED_GEOM;
 std::chrono::time_point<high_resolution_clock> t1, t2;
 std::chrono::duration<double, std::milli> ms_fp;
 
@@ -82,14 +83,14 @@ void ensureHaveIntrinsicSolver() {
 
     if (intrinsicSolver != nullptr) return;
 
-    if (mesh->isManifold() && mesh->isOriented() && isSourceGeometryConstrained(CURVES, POINTS)) {
-        std::cerr << "Constructing intrinsic solver..." << std::endl;
+    if (mesh->isManifold() && mesh->isOriented() & CONSTRAINED_GEOM) {
+        if (VERBOSE) std::cerr << "Constructing intrinsic solver..." << std::endl;
         t1 = high_resolution_clock::now();
         setIntrinsicSolver(*geometry, CURVES, POINTS, manifoldMesh, manifoldGeom, curvesOnManifold, pointsOnManifold,
                            intTri, intrinsicSolver);
         t2 = high_resolution_clock::now();
         ms_fp = t2 - t1;
-        std::cerr << "Intrinsic solver construction time (s): " << ms_fp.count() / 1000. << std::endl;
+        if (VERBOSE) std::cerr << "Intrinsic solver construction time (s): " << ms_fp.count() / 1000. << std::endl;
     }
 }
 
@@ -102,11 +103,10 @@ void solve() {
             if (TIME_UPDATED) signedHeatSolver->setDiffusionTimeCoefficient(TCOEF);
 
             t1 = high_resolution_clock::now();
-            std::cerr << "Computing distance..." << std::endl;
             PHI = signedHeatSolver->computeDistance(CURVES, POINTS, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
-            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
             if (!HEADLESS) {
                 if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
@@ -122,7 +122,7 @@ void solve() {
             determineSourceGeometryOnIntrinsicTriangulation(*intTri, curvesOnManifold, pointsOnManifold,
                                                             curvesOnIntrinsic, pointsOnIntrinsic);
             if (INTTRI_UPDATED) {
-                intrinsicSolver.reset(new SignedHeatMethodSolver(*intTri));
+                intrinsicSolver.reset(new SignedHeatSolver(*intTri));
                 INTTRI_UPDATED = false;
             }
             SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
@@ -133,7 +133,7 @@ void solve() {
                 intrinsicSolver->computeDistance(curvesOnIntrinsic, pointsOnIntrinsic, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
-            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
             PHI = transferBtoA(*intTri, phi, TransferMethod::L2);
             if (!HEADLESS) {
@@ -156,14 +156,14 @@ void solve() {
 
     } else if (MESH_MODE == MeshMode::Points) {
         // Reset point cloud solver in case parameters changed.
-        if (TIME_UPDATED) PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
+        if (TIME_UPDATED) pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
 
         t1 = high_resolution_clock::now();
         pointcloud::PointData<double> phi =
-            PCS->computeSignedDistance(POINTS_CURVES, static_cast<LevelSetConstraint>(CONSTRAINT_MODE));
+            pointCloudSolver->computeSignedDistance(POINTS_CURVES, pointNormals, SHM_OPTIONS);
         t2 = high_resolution_clock::now();
         ms_fp = t2 - t1;
-        std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+        if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
         if (!HEADLESS) psCloud->addScalarQuantity("GSD", phi)->setIsolinesEnabled(true)->setEnabled(true);
 
@@ -206,11 +206,17 @@ void callback() {
         ImGui::InputDouble("soft weight", &(SHM_OPTIONS.softLevelSetWeight));
 
         ImGui::Checkbox("Export result", &EXPORT_RESULT);
+        ImGui::Checkbox("Specify upper/lower bounds for export", &USE_BOUNDS);
+        if (ImGui::TreeNode("Bounds")) {
+            ImGui::InputFloat("lower", &LOWER_BOUND);
+            ImGui::InputFloat("upper", &UPPER_BOUND);
+            ImGui::TreePop();
+        }
 
         ImGui::TreePop();
     }
 
-    if (MESH_MODE == MeshMode::Triangle && mesh->isManifold()) {
+    if (MESH_MODE == MeshMode::Triangle && mesh->isManifold() && CONSTRAINED_GEOM) {
         ImGui::RadioButton("Solve on extrinsic mesh", &SOLVER_MODE, SolverMode::ExtrinsicMesh);
         ImGui::RadioButton("Solve on intrinsic mesh", &SOLVER_MODE, SolverMode::IntrinsicMesh);
 
@@ -255,7 +261,7 @@ int main(int argc, char** argv) {
     args::ValueFlag<std::string> outputFilename(parser, "output", "Output filename", {"o", "output"});
 
     args::Group group(parser);
-    args::Flag points(group, "point", "Solve as point cloud.", {"pc", "points"});
+    args::Flag points(group, "point", "Solve as point cloud.", {"p", "points"});
     args::Flag verbose(group, "verbose", "Verbose output", {"V", "verbose"});
     args::Flag headless(group, "headless", "Don't use the GUI.", {"h", "headless"});
 
@@ -288,18 +294,27 @@ int main(int argc, char** argv) {
 
     if (points) {
         MESH_MODE = MeshMode::Points;
-        std::vector<Vector3> positions = readPointCloud(MESH_FILEPATH);
-        size_t nPts = positions.size();
+        // Point cloud surface domain needs normals; it's up to the user to compute a consistent assignment of normals.
+        // In the meantime just load in a mesh and inherit normals from the mesh. std::vector<Vector3> positions =
+        // readPointCloud(MESH_FILEPATH);
+        std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
+        size_t nPts = mesh->nVertices();
         cloud = std::unique_ptr<pointcloud::PointCloud>(new pointcloud::PointCloud(nPts));
         pointPositions = pointcloud::PointData<Vector3>(*cloud);
-        for (size_t i = 0; i < nPts; i++) pointPositions[i] = positions[i];
+        pointNormals = pointcloud::PointData<Vector3>(*cloud);
+        geometry->requireVertexNormals();
+        for (size_t i = 0; i < nPts; i++) {
+            pointPositions[i] = geometry->vertexPositions[i];
+            pointNormals[i] = geometry->vertexNormals[i];
+        }
+        geometry->unrequireVertexNormals();
         pointGeom = std::unique_ptr<pointcloud::PointPositionGeometry>(
             new pointcloud::PointPositionGeometry(*cloud, pointPositions));
-        PCS.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
+        pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
     } else {
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
         if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
-        signedHeatSolver = std::unique_ptr<SignedHeatMethodSolver>(new SignedHeatMethodSolver(*geometry));
+        signedHeatSolver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*geometry));
     }
 
     // Load source geometry.
@@ -308,6 +323,7 @@ int main(int argc, char** argv) {
         switch (MESH_MODE) {
             case (MeshMode::Triangle): {
                 std::tie(CURVES, POINTS) = readInput(*mesh, filename);
+                CONSTRAINED_GEOM = isSourceGeometryConstrained(CURVES, POINTS);
                 break;
             }
             case (MeshMode::Polygon): {

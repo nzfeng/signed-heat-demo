@@ -229,6 +229,7 @@ std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std:
     std::string X;
     size_t idx;
     bool flip = false;
+    bool read = false;
     std::vector<bool> curveFlips;
 
     if (curr_file.is_open()) {
@@ -244,16 +245,23 @@ std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std:
                 iss >> flip;
                 curveFlips.push_back(flip);
                 curves.emplace_back();
+                read = true;
+            } else if (X == "unsigned_curve") {
+                read = false;
+            } else if (X == "unsigned_point") {
+                read = false;
             }
-            if (X == "v") {
-                iss >> idx;
-                curves.back().emplace_back(mesh.vertex(idx));
-            } else if (X == "l") {
-                while (true) {
-                    if (iss.eof()) break;
+            if (read) {
+                if (X == "v") {
                     iss >> idx;
-                    idx -= 1; // OBJ elements are 1-indexed, whereas geometry-central uses 0-indexing
                     curves.back().emplace_back(mesh.vertex(idx));
+                } else if (X == "l") {
+                    while (true) {
+                        if (iss.eof()) break;
+                        iss >> idx;
+                        idx -= 1; // OBJ elements are 1-indexed, whereas geometry-central uses 0-indexing
+                        curves.back().emplace_back(mesh.vertex(idx));
+                    }
                 }
             }
         }
@@ -280,6 +288,7 @@ std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointClo
     std::string X;
     size_t idx;
     bool flip = false;
+    bool read = false;
     std::vector<bool> curveFlips;
 
     if (curr_file.is_open()) {
@@ -295,16 +304,23 @@ std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointClo
                 iss >> flip;
                 curveFlips.push_back(flip);
                 curves.emplace_back();
+                read = true;
+            } else if (X == "unsigned_curve") {
+                read = false;
+            } else if (X == "unsigned_point") {
+                read = false;
             }
-            if (X == "v") {
-                iss >> idx;
-                curves.back().emplace_back(cloud.point(idx));
-            } else if (X == "l") {
-                while (true) {
-                    if (iss.eof()) break;
+            if (read) {
+                if (X == "v") {
                     iss >> idx;
-                    idx -= 1; // OBJ elements are 1-indexed, whereas geometry-central uses 0-indexing
                     curves.back().emplace_back(cloud.point(idx));
+                } else if (X == "l") {
+                    while (true) {
+                        if (iss.eof()) break;
+                        iss >> idx;
+                        idx -= 1; // OBJ elements are 1-indexed, whereas geometry-central uses 0-indexing
+                        curves.back().emplace_back(cloud.point(idx));
+                    }
                 }
             }
         }
@@ -723,7 +739,7 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
                         std::unique_ptr<VertexPositionGeometry>& manifoldGeom, std::vector<Curve>& curvesOnManifold,
                         std::vector<SurfacePoint>& pointsOnManifold,
                         std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation>& intTri,
-                        std::unique_ptr<SignedHeatMethodSolver>& solver) {
+                        std::unique_ptr<SignedHeatSolver>& solver) {
 
     // Set up corresponding manifold mesh & geometry (necessary for intrinsic triangulation operations.)
     SurfaceMesh& mesh = geometry.mesh;
@@ -792,7 +808,7 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
         pointsOnManifold.push_back(pt);
     }
 
-    solver = std::unique_ptr<SignedHeatMethodSolver>(new SignedHeatMethodSolver(*intTri));
+    solver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*intTri));
 }
 
 void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& intTri,

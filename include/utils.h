@@ -101,7 +101,7 @@ void setIntrinsicSolver(VertexPositionGeometry& geometry, const std::vector<Curv
                         std::unique_ptr<VertexPositionGeometry>& manifoldGeom, std::vector<Curve>& curvesOnManifold,
                         std::vector<SurfacePoint>& pointsOnManifold,
                         std::unique_ptr<IntegerCoordinatesIntrinsicTriangulation>& intTri,
-                        std::unique_ptr<SignedHeatMethodSolver>& solver);
+                        std::unique_ptr<SignedHeatSolver>& solver);
 
 void determineSourceGeometryOnIntrinsicTriangulation(IntrinsicTriangulation& intTri,
                                                      const std::vector<Curve>& curvesOnManifold,
