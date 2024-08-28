@@ -1,4 +1,0 @@
-unsigned_point
-#v 13942
-#v 30656
-v 9770

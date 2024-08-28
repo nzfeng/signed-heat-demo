@@ -554,7 +554,7 @@ Vector3 redistributeRGB(const Vector3& color) {
  * despite having different ranges. (Using uniform normalization doesn't look good)
  */
 void SDFColormapToImageTexture(const Vector3& colorNegative, const Vector3& colorPositive, double split,
-                               const std::string& name, int M, int N) {
+                               const std::string& dir, int M, int N) {
 
     std::vector<double> powScalings = {1.0, 0.8}; // go to white faster / slower
     int negSamples = roundToNearestInt(N * (split));
@@ -581,7 +581,7 @@ void SDFColormapToImageTexture(const Vector3& colorNegative, const Vector3& colo
     std::reverse(colorsP.begin(), colorsP.end());
 
     std::fstream file;
-    std::string filename = "../blender_data/colormap.ppm";
+    std::string filename = dir + "colormap.ppm";
     file.open(filename, std::ios::out | std::ios::trunc);
     if (file.is_open()) {
         file << "P3\n";
@@ -600,7 +600,7 @@ void SDFColormapToImageTexture(const Vector3& colorNegative, const Vector3& colo
     }
 }
 
-Vector<double> normalizeSDF(const Vector<double>& u, const std::string& name, bool useBounds, double lowerBound,
+Vector<double> normalizeSDF(const Vector<double>& u, const std::string& dir, bool useBounds, double lowerBound,
                             double upperBound) {
 
     const double inf = std::numeric_limits<double>::infinity();
@@ -635,7 +635,7 @@ Vector<double> normalizeSDF(const Vector<double>& u, const std::string& name, bo
         range = rangeNeg + rangePos;
         split = rangeNeg / range;
     }
-    SDFColormapToImageTexture(COLOR_NEGATIVE, COLOR_POSITIVE, split, name, 1, 1024);
+    SDFColormapToImageTexture(COLOR_NEGATIVE, COLOR_POSITIVE, split, dir, 1, 1024);
 
     Vector<double> w(N);
     for (size_t i = 0; i < N; i++) {
@@ -665,7 +665,6 @@ void exportFunction(EmbeddedGeometryInterface& geom, const VertexData<double>& u
 
     CornerData<Vector2> texCoords = toTexCoords(u);
     WavefrontOBJ::write(filename, geom, texCoords);
-    std::cerr << "File " << filename << " written." << std::endl;
 }
 
 void exportFunction(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
@@ -683,15 +682,14 @@ void exportFunction(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPosi
     VertexData<Vector3> csPositions = cs.interpolateAcrossA(manifoldGeom.vertexPositions);
     VertexPositionGeometry geom(csMesh, csPositions);
     writeSurfaceMesh(csMesh, geom, texCoords, filename);
-    std::cerr << "File " << filename << " written." << std::endl;
 }
 
 
 void exportSDF(EmbeddedGeometryInterface& geom, const VertexData<double>& u, const std::string& filename,
                bool useBounds, double lowerBound, double upperBound) {
 
-    std::string name = polyscope::guessNiceNameFromPath(filename);
-    Vector<double> w = normalizeSDF(u.toVector(), name, useBounds, lowerBound, upperBound);
+    std::string dir = getHomeDirectory(filename);
+    Vector<double> w = normalizeSDF(u.toVector(), dir, useBounds, lowerBound, upperBound);
     exportFunction(geom, VertexData<double>(*u.getMesh(), w), filename);
 }
 
@@ -699,15 +697,16 @@ void exportSDF(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionG
                const VertexData<double>& u, const std::string& filename, bool useBounds, double lowerBound,
                double upperBound) {
 
-    std::string name = polyscope::guessNiceNameFromPath(filename);
-    Vector<double> w = normalizeSDF(u.toVector(), name, useBounds, lowerBound, upperBound);
+    std::string dir = getHomeDirectory(filename);
+    Vector<double> w = normalizeSDF(u.toVector(), dir, useBounds, lowerBound, upperBound);
     exportFunction(intTri, manifoldGeom, VertexData<double>(*u.getMesh(), w), filename);
 }
 
 void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const pointcloud::PointData<double>& u,
                const std::string& filename) {
 
-    Vector<double> w = normalizeSDF(u.toVector());
+    std::string dir = getHomeDirectory(filename);
+    Vector<double> w = normalizeSDF(u.toVector(), dir);
     size_t nPoints = pointPositions.size();
 
     // Write point positions.

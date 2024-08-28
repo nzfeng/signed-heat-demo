@@ -60,10 +60,10 @@ std::vector<Curve> extractLevelsetAsCurves(IntrinsicGeometryInterface& geom, con
 
 /* Export curves as OBJ. */
 void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
-                  const std::vector<SurfacePoint>& points, const std::string& dir = "../export");
+                  const std::vector<SurfacePoint>& points, const std::string& dir = "../output");
 
 void exportCurves(const pointcloud::PointData<Vector3>& positions,
-                  const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& dir = "../export");
+                  const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& dir = "../output");
 
 /* Export SDF on an extrinsic surface mesh. */
 void exportSDF(EmbeddedGeometryInterface& geom, const VertexData<double>& u, const std::string& filename,
@@ -86,7 +86,7 @@ void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const point
                const std::string& filename);
 
 /* Normalize SDF data so it maps onto (custom) divergent colormap correctly. */
-Vector<double> normalizeSDF(const Vector<double>& u, const std::string& name = "", bool useBounds = false,
+Vector<double> normalizeSDF(const Vector<double>& u, const std::string& dir = "", bool useBounds = false,
                             double lowerBound = -1, double upperBound = -1);
 
 // ===================== MESH MUTATION

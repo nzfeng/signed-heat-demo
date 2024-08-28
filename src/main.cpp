@@ -52,6 +52,7 @@ bool INTTRI_UPDATED = false;
 
 enum SolverMode { ExtrinsicMesh = 0, IntrinsicMesh };
 int SOLVER_MODE = SolverMode::ExtrinsicMesh;
+int LAST_SOLVER_MODE;
 
 // Solvers & parameters
 float TCOEF = 1.;
@@ -64,7 +65,8 @@ bool VIZ = true;
 bool VERBOSE, HEADLESS, IS_POLY;
 std::unique_ptr<SignedHeatSolver> signedHeatSolver, intrinsicSolver;
 std::unique_ptr<pointcloud::PointCloudHeatSolver> pointCloudSolver;
-VertexData<double> PHI;
+VertexData<double> PHI, PHI_CS;
+pointcloud::PointData<double> PHI_POINTS;
 
 // Program variables
 std::string MESHNAME = "input mesh";
@@ -75,6 +77,7 @@ bool COMMON_SUBDIVISION = true;
 bool USE_BOUNDS = false;
 float LOWER_BOUND, UPPER_BOUND;
 bool CONSTRAINED_GEOM;
+bool EXPORT_ON_CS = true;
 std::chrono::time_point<high_resolution_clock> t1, t2;
 std::chrono::duration<double, std::milli> ms_fp;
 
@@ -116,6 +119,7 @@ void solve() {
                     psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
                 }
             }
+            LAST_SOLVER_MODE = SolverMode::ExtrinsicMesh;
 
         } else {
             ensureHaveIntrinsicSolver();
@@ -129,51 +133,38 @@ void solve() {
             if (TIME_UPDATED) intrinsicSolver->setDiffusionTimeCoefficient(TCOEF);
 
             t1 = high_resolution_clock::now();
-            VertexData<double> phi =
-                intrinsicSolver->computeDistance(curvesOnIntrinsic, pointsOnIntrinsic, SHM_OPTIONS);
+            PHI_CS = intrinsicSolver->computeDistance(curvesOnIntrinsic, pointsOnIntrinsic, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
             if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
-            PHI = transferBtoA(*intTri, phi, TransferMethod::L2);
+            PHI = transferBtoA(*intTri, PHI_CS, TransferMethod::L2);
             if (!HEADLESS) {
                 if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
                     psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
-                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, true);
+                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, PHI_CS, "GSD", true,
+                                                 true);
                 } else {
                     // If there's multiple level sets, it's arbitrary which one should be "zero".
                     psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
-                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, false);
+                    visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, PHI_CS, "GSD", true,
+                                                 false);
                 }
             }
-            // Option to export common subdivison
-            if (EXPORT_RESULT) {
-                exportSDF(*intTri, *manifoldGeom, phi, "../blender_data/phi.obj", USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-            }
+            LAST_SOLVER_MODE = SolverMode::IntrinsicMesh;
         }
-
-        if (EXPORT_RESULT) {
-            exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
-            exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-        }
-
     } else if (MESH_MODE == MeshMode::Points) {
         // Reset point cloud solver in case parameters changed.
         if (TIME_UPDATED) pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
 
         t1 = high_resolution_clock::now();
-        pointcloud::PointData<double> phi =
-            pointCloudSolver->computeSignedDistance(POINTS_CURVES, pointNormals, SHM_OPTIONS);
+        PHI_POINTS = pointCloudSolver->computeSignedDistance(POINTS_CURVES, pointNormals, SHM_OPTIONS);
         t2 = high_resolution_clock::now();
         ms_fp = t2 - t1;
         if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
 
-        if (!HEADLESS) psCloud->addScalarQuantity("GSD", phi)->setIsolinesEnabled(true)->setEnabled(true);
+        if (!HEADLESS) psCloud->addScalarQuantity("GSD", PHI_POINTS)->setIsolinesEnabled(true)->setEnabled(true);
 
-        if (EXPORT_RESULT) {
-            exportCurves(pointGeom->positions, POINTS_CURVES, OUTPUT_DIR + "/source.obj");
-            exportSDF(pointGeom->positions, phi, OUTPUT_FILENAME);
-        }
     } else if (MESH_MODE == MeshMode::Polygon) {
         throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
         // TODO: Set up polygon mesh solver
@@ -194,6 +185,26 @@ void callback() {
 
     if (ImGui::Button("Solve")) {
         solve();
+    }
+    if (ImGui::Button("Export last solution")) {
+        if (MESH_MODE == MeshMode::Triangle) {
+            exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR);
+            if (LAST_SOLVER_MODE == SolverMode::ExtrinsicMesh) {
+                exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+            } else if (LAST_SOLVER_MODE == SolverMode::IntrinsicMesh) {
+                ImGui::Checkbox("On common subdivision (vs. input mesh)", &EXPORT_ON_CS);
+                if (!EXPORT_ON_CS) {
+                    exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+                } else {
+                    exportSDF(*intTri, *manifoldGeom, PHI_CS, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+                }
+            }
+        } else if (MESH_MODE == MeshMode::Points) {
+            exportCurves(pointGeom->positions, POINTS_CURVES, OUTPUT_DIR + "/source.obj");
+            exportSDF(pointGeom->positions, PHI_POINTS, OUTPUT_FILENAME);
+        } else if (MESH_MODE == MeshMode::Polygon) {
+            // TODO
+        }
     }
 
     if (ImGui::TreeNode("Solve options")) {
@@ -288,18 +299,18 @@ int main(int argc, char** argv) {
     // Load mesh
     MESH_FILEPATH = args::get(meshFilename);
     DATA_DIR = getHomeDirectory(MESH_FILEPATH);
-    OUTPUT_DIR = getHomeDirectory(OUTPUT_FILENAME);
     MESHROOT = polyscope::guessNiceNameFromPath(MESH_FILEPATH);
 
-    OUTPUT_FILENAME = outputFilename ? args::get(outputFilename) : OUTPUT_DIR + "/GSD.obj";
+    if (outputFilename) OUTPUT_DIR = getHomeDirectory(args::get(outputFilename));
+    OUTPUT_FILENAME = OUTPUT_DIR + "/GSD.obj";
     HEADLESS = headless;
     VERBOSE = verbose;
 
     if (points) {
         MESH_MODE = MeshMode::Points;
-        // Point cloud surface domain needs normals; it's up to the user to compute a consistent assignment of normals.
-        // In the meantime just load in a mesh and inherit normals from the mesh. std::vector<Vector3> positions =
-        // readPointCloud(MESH_FILEPATH);
+        // Point cloud surface domain needs normals; it's up to the user to compute a consistent assignment of
+        // normals. In the meantime just load in a mesh and inherit normals from the mesh. std::vector<Vector3>
+        // positions = readPointCloud(MESH_FILEPATH);
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
         size_t nPts = mesh->nVertices();
         cloud = std::unique_ptr<pointcloud::PointCloud>(new pointcloud::PointCloud(nPts));
