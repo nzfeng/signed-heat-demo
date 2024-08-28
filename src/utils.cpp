@@ -668,12 +668,40 @@ void exportFunction(EmbeddedGeometryInterface& geom, const VertexData<double>& u
     std::cerr << "File " << filename << " written." << std::endl;
 }
 
+void exportFunction(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
+                    const VertexData<double>& u, const std::string& filename) {
+
+    CommonSubdivision& cs = intTri.getCommonSubdivision();
+    cs.constructMesh(true, true);
+
+    // Interpolate from intrinsic mesh to the common subdivision
+    VertexData<double> cs_u = cs.interpolateAcrossB(u);
+    CornerData<Vector2> texCoords = toTexCoords(cs_u);
+
+    // Export mesh
+    ManifoldSurfaceMesh& csMesh = *cs.mesh;
+    VertexData<Vector3> csPositions = cs.interpolateAcrossA(manifoldGeom.vertexPositions);
+    VertexPositionGeometry geom(csMesh, csPositions);
+    writeSurfaceMesh(csMesh, geom, texCoords, filename);
+    std::cerr << "File " << filename << " written." << std::endl;
+}
+
+
 void exportSDF(EmbeddedGeometryInterface& geom, const VertexData<double>& u, const std::string& filename,
                bool useBounds, double lowerBound, double upperBound) {
 
     std::string name = polyscope::guessNiceNameFromPath(filename);
     Vector<double> w = normalizeSDF(u.toVector(), name, useBounds, lowerBound, upperBound);
     exportFunction(geom, VertexData<double>(*u.getMesh(), w), filename);
+}
+
+void exportSDF(IntegerCoordinatesIntrinsicTriangulation& intTri, VertexPositionGeometry& manifoldGeom,
+               const VertexData<double>& u, const std::string& filename, bool useBounds, double lowerBound,
+               double upperBound) {
+
+    std::string name = polyscope::guessNiceNameFromPath(filename);
+    Vector<double> w = normalizeSDF(u.toVector(), name, useBounds, lowerBound, upperBound);
+    exportFunction(intTri, manifoldGeom, VertexData<double>(*u.getMesh(), w), filename);
 }
 
 void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const pointcloud::PointData<double>& u,

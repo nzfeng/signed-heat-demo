@@ -112,7 +112,7 @@ void solve() {
                 if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
                     psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
                 } else {
-                    // If there's multiple level sets, it's not clear which one should be "zero".
+                    // If there's multiple level sets, it's arbitrary which one should be "zero".
                     psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
                 }
             }
@@ -141,12 +141,15 @@ void solve() {
                     psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
                     visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, true);
                 } else {
-                    // If there's multiple level sets, it's not clear which one should be "zero".
+                    // If there's multiple level sets, it's arbitrary which one should be "zero".
                     psMesh->addVertexScalarQuantity("GSD", PHI)->setIsolinesEnabled(true)->setEnabled(true);
                     visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, phi, "GSD", true, false);
                 }
             }
-            // TODO: Option to export common subdivison
+            // Option to export common subdivison
+            if (EXPORT_RESULT) {
+                exportSDF(*intTri, *manifoldGeom, phi, "../blender_data/phi.obj", USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
+            }
         }
 
         if (EXPORT_RESULT) {
