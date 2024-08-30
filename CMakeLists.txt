@@ -85,5 +85,5 @@ add_executable(main "${SRCS}")
 target_include_directories(main PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 # add the args.hxx project which we use for command line args
-target_include_directories(main PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../../Forks/polyscope/deps/args")
+target_include_directories(main PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../deps/polyscope/deps/args")
 target_link_libraries(main geometry-central polyscope)

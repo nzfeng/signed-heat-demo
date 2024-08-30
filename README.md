@@ -1,10 +1,10 @@
 # signed-heat-demo (surface domains)
 
-C++ demo for "[A Heat Method for ](https://nzfeng.github.io/research/SignedHeatMethod/index.html)" by [Nicole Feng](https://nzfeng.github.io/index.html) and [Keenan Crane](https://www.cs.cmu.edu/~kmcrane/), presented at SIGGRAPH 2024.
+C++ demo for "[A Heat Method for Generalized Signed Distance](https://nzfeng.github.io/research/SignedHeatMethod/index.html)" by [Nicole Feng](https://nzfeng.github.io/index.html) and [Keenan Crane](https://www.cs.cmu.edu/~kmcrane/), presented at SIGGRAPH 2024.
 
 Project page with links to paper, pseudocode, supplementals, & videos: [link](https://nzfeng.github.io/research/SignedHeatMethod/index.html)
 
-This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surface domains**, including triangle meshes, polygon meshes, and point clouds. The Signed Heat Method is implemented in [geometry-central](https://geometry-central.net/), this is just a demo application.
+This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surface domains**, including triangle meshes, polygon meshes, and point clouds. The Signed Heat Method is implemented in [geometry-central](https://geometry-central.net/surface/algorithms/signed_heat_method/), this is just a demo application.
 
 If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/signed-heat-3d).
 
@@ -33,7 +33,7 @@ If this code contributes to academic work, please cite as:
 
 ## Getting started
 
-This project depends on [`geometry-central`](https://geometry-central.net) for mesh computations, and [`Polyscope`](http://polyscope.run/) for visualization. These dependencies are added as git submodules, so copies will be downloaded locally when you clone this project as below.
+This project depends on [geometry-central](https://geometry-central.net) for mesh computations, and [Polyscope](http://polyscope.run/) for visualization. These dependencies are added as git submodules, so copies will be downloaded locally when you clone this project as below.
 
 ```
 git clone --recursive https://github.com/nzfeng/signed-heat-demo.git
@@ -101,7 +101,7 @@ _Warning_: The indexing order of vertices, edges, and faces of a given mesh can 
 
 # Usage
 
-In addition to the mesh file, can pass several arguments to the command line, including some flags which are also shown in the GUI.
+In addition to the mesh file, you can pass several arguments to the command line, including some flags which are also shown as options in the GUI.
 
 |flag | purpose|
 | ------------- |-------------|

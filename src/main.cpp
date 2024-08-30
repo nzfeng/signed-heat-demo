@@ -207,28 +207,31 @@ void callback() {
         }
     }
 
-    if (ImGui::TreeNode("Solve options")) {
+    // if (ImGui::TreeNode("Solve options")) {
 
-        if (ImGui::InputFloat("tCoef", &TCOEF)) TIME_UPDATED = true;
+    ImGui::Text("Solve options");
+    ImGui::Separator();
 
-        ImGui::Checkbox("Preserve source normals", &SHM_OPTIONS.preserveSourceNormals);
-        ImGui::RadioButton("Constrain zero set", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::ZeroSet));
-        ImGui::RadioButton("Constrain multiple levelsets", &CONSTRAINT_MODE,
-                           static_cast<int>(LevelSetConstraint::Multiple));
-        ImGui::RadioButton("No levelset constraints", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::None));
+    if (ImGui::InputFloat("tCoef", &TCOEF)) TIME_UPDATED = true;
 
-        ImGui::InputDouble("soft weight", &(SHM_OPTIONS.softLevelSetWeight));
+    ImGui::Checkbox("Preserve source normals", &SHM_OPTIONS.preserveSourceNormals);
+    ImGui::RadioButton("Constrain zero set", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::ZeroSet));
+    ImGui::RadioButton("Constrain multiple levelsets", &CONSTRAINT_MODE,
+                       static_cast<int>(LevelSetConstraint::Multiple));
+    ImGui::RadioButton("No levelset constraints", &CONSTRAINT_MODE, static_cast<int>(LevelSetConstraint::None));
 
-        ImGui::Checkbox("Export result", &EXPORT_RESULT);
-        ImGui::Checkbox("Specify upper/lower bounds for export", &USE_BOUNDS);
-        if (ImGui::TreeNode("Bounds")) {
-            ImGui::InputFloat("lower", &LOWER_BOUND);
-            ImGui::InputFloat("upper", &UPPER_BOUND);
-            ImGui::TreePop();
-        }
+    ImGui::InputDouble("soft weight", &(SHM_OPTIONS.softLevelSetWeight));
 
+    ImGui::Checkbox("Export result", &EXPORT_RESULT);
+    ImGui::Checkbox("Specify upper/lower bounds for export", &USE_BOUNDS);
+    if (ImGui::TreeNode("Bounds")) {
+        ImGui::InputFloat("lower", &LOWER_BOUND);
+        ImGui::InputFloat("upper", &UPPER_BOUND);
         ImGui::TreePop();
     }
+
+    //     ImGui::TreePop();
+    // }
 
     if (MESH_MODE == MeshMode::Triangle && mesh->isManifold() && CONSTRAINED_GEOM) {
         ImGui::RadioButton("Solve on extrinsic mesh", &SOLVER_MODE, SolverMode::ExtrinsicMesh);
