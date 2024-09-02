@@ -1,4 +1,4 @@
-# signed-heat-demo (surface domains)
+# signed-heat-demo (2D surface domains)
 
 C++ demo for "[A Heat Method for Generalized Signed Distance](https://nzfeng.github.io/research/SignedHeatMethod/index.html)" by [Nicole Feng](https://nzfeng.github.io/index.html) and [Keenan Crane](https://www.cs.cmu.edu/~kmcrane/), presented at SIGGRAPH 2024.
 

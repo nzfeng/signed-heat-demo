@@ -330,6 +330,18 @@ int main(int argc, char** argv) {
         pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
     } else {
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
+
+        // Center and scale.
+        Vector3 bboxMin, bboxMax;
+        std::tie(bboxMin, bboxMax) = boundingBox(*geometry);
+        double diag = (bboxMin - bboxMax).norm();
+        Vector3 center = centroid(*geometry);
+        for (Vertex v : mesh->vertices()) {
+            Vector3 p = geometry->vertexPositions[v];
+            geometry->vertexPositions[v] = (p - center) / diag;
+        }
+        geometry->refreshQuantities();
+
         if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
         signedHeatSolver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*geometry));
     }
