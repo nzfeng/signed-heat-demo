@@ -126,13 +126,13 @@ Notes:
 
 From the GUI menu, you can export the SDF as an OBJ file containing both the mesh and texture coordinates. Whenever one calls an export function, the data that gets exported is from most recently computed solution.
 
-From the GUI menu, you can also export curves as [OBJ line elements](https://en.wikipedia.org/wiki/Wavefront_.obj_file#Line_elements). Note that in most 3D graphics software, how smooth a curve is rendered depends on its connectivity (i.e., there can be noticeable gaps between curves specified as separate segments.) While the order in which you specify curve segments does not affect the results of the signed heat method, I recommend computing connected components of your curve **for visualization only**, so that the curve can be exported with maximum connectivity and hence yield maximum smoothness during rendering. 
+From the GUI menu, you can also export curves as [OBJ line elements](https://en.wikipedia.org/wiki/Wavefront_.obj_file#Line_elements). Note that in most 3D graphics software, how smooth a curve is rendered depends on its connectivity (i.e., there can be noticeable gaps between curves specified as separate segments.) While the order in which you specify curve segments does not affect the results of the signed heat method, I recommend computing connected components of your curve _for visualization only_, so that the curve can be exported with maximum connectivity and hence yield maximum smoothness during rendering. 
 
-I have included an example Blender file that loads in a mesh, and renders SDF stored as texture coordinates on the mesh; see the section on "Visualization" below.
+I have included an example Blender file that loads in a mesh, and renders SDF stored as texture coordinates on the mesh; see the section on "Visualization" below. The program also outputs a custom colormap as a PPM image whenever you export a solution; you can convert to e.g. PNG using ImageMagick using the command `mogrify -format png *.ppm`.
 
 ## Visualization
 
-The `render/` directory contains an example Blender file (`Example.blend`) that can load and visualize meshes and curves, with the SDF. The Blender file should open to a Python script in the `Scripting` workspace. You can load your own mesh & solution (encoded as texture coordinates) by changing the mesh filepath in the script and clicking on `Run Script`. This will load your model and visualize the solution.
+The `media/` directory contains an example Blender file (`Example.blend`) renders SDFs on the surface along with the source geometry.
 
 ![Screenshot of the provided Blender file](media/Blender.png)
 

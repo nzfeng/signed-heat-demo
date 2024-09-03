@@ -60,7 +60,6 @@ bool TIME_UPDATED = false;
 SignedHeatOptions SHM_OPTIONS;
 int CONSTRAINT_MODE = static_cast<int>(LevelSetConstraint::ZeroSet);
 bool SOLVE_AS_POINT_CLOUD = false;
-bool EXPORT_RESULT = false;
 bool VIZ = true;
 bool VERBOSE, HEADLESS, IS_POLY;
 std::unique_ptr<SignedHeatSolver> signedHeatSolver, intrinsicSolver;
@@ -205,7 +204,6 @@ void callback() {
             if (LAST_SOLVER_MODE == SolverMode::ExtrinsicMesh) {
                 exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
             } else if (LAST_SOLVER_MODE == SolverMode::IntrinsicMesh) {
-                ImGui::Checkbox("On common subdivision (vs. input mesh)", &EXPORT_ON_CS);
                 if (!EXPORT_ON_CS) {
                     exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
                 } else {
@@ -219,8 +217,8 @@ void callback() {
             // TODO
         }
     }
-
-    // if (ImGui::TreeNode("Solve options")) {
+    if (LAST_SOLVER_MODE == SolverMode::IntrinsicMesh)
+        ImGui::Checkbox("On common subdivision (vs. input mesh)", &EXPORT_ON_CS);
 
     ImGui::Text("Solve options");
     ImGui::Separator();
@@ -235,7 +233,6 @@ void callback() {
 
     ImGui::InputDouble("soft weight", &(SHM_OPTIONS.softLevelSetWeight));
 
-    ImGui::Checkbox("Export result", &EXPORT_RESULT);
     ImGui::Checkbox("Specify upper/lower bounds for export", &USE_BOUNDS);
     if (ImGui::TreeNode("Bounds")) {
         ImGui::InputFloat("lower", &LOWER_BOUND);
@@ -339,16 +336,16 @@ int main(int argc, char** argv) {
     } else {
         std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
 
-        // Center and scale.
-        Vector3 bboxMin, bboxMax;
-        std::tie(bboxMin, bboxMax) = boundingBox(*geometry);
-        double diag = (bboxMin - bboxMax).norm();
-        Vector3 center = centroid(*geometry);
-        for (Vertex v : mesh->vertices()) {
-            Vector3 p = geometry->vertexPositions[v];
-            geometry->vertexPositions[v] = (p - center) / diag;
-        }
-        geometry->refreshQuantities();
+        // // Center and scale.
+        // Vector3 bboxMin, bboxMax;
+        // std::tie(bboxMin, bboxMax) = boundingBox(*geometry);
+        // double diag = (bboxMin - bboxMax).norm();
+        // Vector3 center = centroid(*geometry);
+        // for (Vertex v : mesh->vertices()) {
+        //     Vector3 p = geometry->vertexPositions[v];
+        //     geometry->vertexPositions[v] = (p - center) / diag;
+        // }
+        // geometry->refreshQuantities();
 
         if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
         signedHeatSolver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*geometry));
