@@ -44,7 +44,7 @@ SurfacePoint reinterpretTo(const SurfacePoint& p, SurfaceMesh& otherMesh);
 
 std::string getHomeDirectory(const std::string& filepath);
 
-std::vector<Vector3> readPointCloud(const std::string& filename);
+std::tuple<std::vector<Vector3>, std::vector<Vector3>> readPointCloud(const std::string& filename);
 
 std::tuple<std::vector<Curve>, std::vector<SurfacePoint>> readInput(SurfaceMesh& mesh, const std::string& filename);
 std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std::string& filename);

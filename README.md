@@ -52,7 +52,7 @@ A Polyscope GUI will open.
 # Input
 
 ## Mesh file formats
-The input mesh or point cloud may be an `obj`, `ply`, `off`, or `stl`. See [the geometry-central website](https://geometry-central.net/surface/utilities/io/#reading-meshes) for up-to-date information on supported file types.
+The input mesh may be an `obj`, `ply`, `off`, or `stl`. See [the geometry-central website](https://geometry-central.net/surface/utilities/io/#reading-meshes) for up-to-date information on supported file types. Point clouds are assumed to have the extension `.pc`.
 
 ## Curve/point input
 
@@ -107,7 +107,6 @@ In addition to the mesh file, you can pass several arguments to the command line
 | ------------- |-------------|
 |`--i`, `--input=[name].txt`| Filepath to input curve/points. |
 |`--o`, `--output=[name].obj`| File to save signed distance function to. |
-|`--p`, `--points`| Treat the input mesh as a point cloud. |
 |`--V`, `--verbose`| Verbose output. |
 |`--h`, `--headless`| Don't use the GUI, and automatically solve for & export the generalized SDF.|
 |`--help`| Display help. |

@@ -70,7 +70,7 @@ pointcloud::PointData<double> PHI_POINTS;
 
 // Program variables
 std::string MESHNAME = "input mesh";
-std::string MESH_FILEPATH, MESHROOT, OUTPUT_FILENAME, DATA_DIR;
+std::string MESH_FILEPATH, OUTPUT_FILENAME, DATA_DIR;
 std::string OUTPUT_DIR = "../export";
 bool VIS_INTRINSIC_MESH = false;
 bool COMMON_SUBDIVISION = true;
@@ -109,7 +109,11 @@ void solve() {
             PHI = signedHeatSolver->computeDistance(CURVES, POINTS, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
-            if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            if (VERBOSE) {
+                std::cerr << "min: " << PHI.toVector().minCoeff() << "\tmax: " << PHI.toVector().maxCoeff()
+                          << std::endl;
+                std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            }
 
             if (!HEADLESS) {
                 if (SHM_OPTIONS.levelSetConstraint != LevelSetConstraint::Multiple) {
@@ -136,7 +140,11 @@ void solve() {
             PHI_CS = intrinsicSolver->computeDistance(curvesOnIntrinsic, pointsOnIntrinsic, SHM_OPTIONS);
             t2 = high_resolution_clock::now();
             ms_fp = t2 - t1;
-            if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            if (VERBOSE) {
+                std::cerr << "min: " << PHI_CS.toVector().minCoeff() << "\tmax: " << PHI_CS.toVector().maxCoeff()
+                          << std::endl;
+                std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+            }
 
             PHI = transferBtoA(*intTri, PHI_CS, TransferMethod::L2);
             if (!HEADLESS) {
@@ -154,6 +162,7 @@ void solve() {
             LAST_SOLVER_MODE = SolverMode::IntrinsicMesh;
         }
     } else if (MESH_MODE == MeshMode::Points) {
+        SHM_OPTIONS.levelSetConstraint = static_cast<LevelSetConstraint>(CONSTRAINT_MODE);
         // Reset point cloud solver in case parameters changed.
         if (TIME_UPDATED) pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));
 
@@ -161,12 +170,16 @@ void solve() {
         PHI_POINTS = pointCloudSolver->computeSignedDistance(POINTS_CURVES, pointNormals, SHM_OPTIONS);
         t2 = high_resolution_clock::now();
         ms_fp = t2 - t1;
-        if (VERBOSE) std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+        if (VERBOSE) {
+            std::cerr << "min: " << PHI_POINTS.toVector().minCoeff() << "\tmax: " << PHI_POINTS.toVector().maxCoeff()
+                      << std::endl;
+            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+        }
 
         if (!HEADLESS) psCloud->addScalarQuantity("GSD", PHI_POINTS)->setIsolinesEnabled(true)->setEnabled(true);
 
     } else if (MESH_MODE == MeshMode::Polygon) {
-        throw std::logic_error("SHM on polygon meshes is not yet implemented - ETA mid-September 2024");
+        throw std::logic_error("SHM on polygon meshes is not yet released - ETA September-October 2024");
         // TODO: Set up polygon mesh solver
         // signedHeatSolver->setDiffusionTimeCoefficient(TCOEF);
         // Vector<double> phi = signedHeatSolver->solve(CURVES, POINTS, SHM_OPTIONS);
@@ -278,7 +291,6 @@ int main(int argc, char** argv) {
     args::ValueFlag<std::string> outputFilename(parser, "output", "Output filename", {"o", "output"});
 
     args::Group group(parser);
-    args::Flag points(group, "point", "Solve as point cloud.", {"p", "points"});
     args::Flag verbose(group, "verbose", "Verbose output", {"V", "verbose"});
     args::Flag headless(group, "headless", "Don't use the GUI.", {"h", "headless"});
 
@@ -302,29 +314,25 @@ int main(int argc, char** argv) {
     // Load mesh
     MESH_FILEPATH = args::get(meshFilename);
     DATA_DIR = getHomeDirectory(MESH_FILEPATH);
-    MESHROOT = polyscope::guessNiceNameFromPath(MESH_FILEPATH);
+    std::string ext = MESH_FILEPATH.substr(MESH_FILEPATH.find_last_of(".") + 1);
+    MESH_MODE = (ext == "pc") ? MeshMode::Points : MeshMode::Triangle;
 
     if (outputFilename) OUTPUT_DIR = getHomeDirectory(args::get(outputFilename));
     OUTPUT_FILENAME = OUTPUT_DIR + "/GSD.obj";
     HEADLESS = headless;
     VERBOSE = verbose;
 
-    if (points) {
-        MESH_MODE = MeshMode::Points;
-        // Point cloud surface domain needs normals; it's up to the user to compute a consistent assignment of
-        // normals. In the meantime just load in a mesh and inherit normals from the mesh. std::vector<Vector3>
-        // positions = readPointCloud(MESH_FILEPATH);
-        std::tie(mesh, geometry) = readSurfaceMesh(MESH_FILEPATH);
-        size_t nPts = mesh->nVertices();
+    if (MESH_MODE == MeshMode::Points) {
+        std::vector<Vector3> positions, normals;
+        std::tie(positions, normals) = readPointCloud(MESH_FILEPATH);
+        size_t nPts = positions.size();
         cloud = std::unique_ptr<pointcloud::PointCloud>(new pointcloud::PointCloud(nPts));
         pointPositions = pointcloud::PointData<Vector3>(*cloud);
         pointNormals = pointcloud::PointData<Vector3>(*cloud);
-        geometry->requireVertexNormals();
         for (size_t i = 0; i < nPts; i++) {
-            pointPositions[i] = geometry->vertexPositions[i];
-            pointNormals[i] = geometry->vertexNormals[i];
+            pointPositions[i] = positions[i];
+            pointNormals[i] = normals[i];
         }
-        geometry->unrequireVertexNormals();
         pointGeom = std::unique_ptr<pointcloud::PointPositionGeometry>(
             new pointcloud::PointPositionGeometry(*cloud, pointPositions));
         pointCloudSolver.reset(new pointcloud::PointCloudHeatSolver(*cloud, *pointGeom, TCOEF));

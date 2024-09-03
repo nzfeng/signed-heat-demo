@@ -107,13 +107,13 @@ std::string getHomeDirectory(const std::string& filepath) {
     return dir;
 }
 
-std::vector<Vector3> readPointCloud(const std::string& filename) {
+std::tuple<std::vector<Vector3>, std::vector<Vector3>> readPointCloud(const std::string& filepath) {
 
-    std::ifstream curr_file(filename.c_str());
+    std::ifstream curr_file(filepath.c_str());
     std::string line;
     std::string X;
     double x, y, z;
-    std::vector<Vector3> positions;
+    std::vector<Vector3> positions, normals;
     if (curr_file.is_open()) {
         while (!curr_file.eof()) {
             getline(curr_file, line);
@@ -126,13 +126,16 @@ std::vector<Vector3> readPointCloud(const std::string& filename) {
             if (X == "v") {
                 iss >> x >> y >> z;
                 positions.push_back({x, y, z});
+            } else if (X == "vn") {
+                iss >> x >> y >> z;
+                normals.push_back({x, y, z});
             }
         }
         curr_file.close();
     } else {
-        std::cerr << "Could not open file <" << filename << ">." << std::endl;
+        std::cerr << "Could not open file <" << filepath << ">." << std::endl;
     }
-    return positions;
+    return std::make_tuple(positions, normals);
 }
 
 std::tuple<std::vector<Curve>, std::vector<SurfacePoint>> readInput(SurfaceMesh& mesh, const std::string& filename) {
