@@ -49,6 +49,8 @@ bin/main /path/to/mesh --i=/path/to/curve
 ```
 A Polyscope GUI will open.
 
+If you do not clone recursively, you may need to initialize/update submodules by running `git submodule update --init --recursive` or `git submodule update --recursive`.
+
 # Input
 
 ## Mesh file formats
