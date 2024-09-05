@@ -6,7 +6,7 @@ Project page with links to paper, pseudocode, supplementals, & videos: [link](ht
 
 This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surface domains**, including triangle meshes, polygon meshes, and point clouds. The Signed Heat Method is implemented in [geometry-central](https://geometry-central.net/surface/algorithms/signed_heat_method/), this is just a demo application.
 
-If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/signed-heat-3d).
+If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/nzfeng/signed-heat-3d).
 
 ![teaser image](media/teaser.png)
 
