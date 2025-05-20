@@ -499,6 +499,37 @@ void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<
     }
 }
 
+void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<std::vector<Vertex>>& curves,
+                  const std::string& dir) {
+
+    std::string cFilename = dir + "/curves.obj";
+    std::fstream f;
+    f.open(cFilename, std::ios::out | std::ios::trunc);
+    if (f.is_open()) {
+        // Assume curves have already been organized into components to be "as connected as possible".
+        size_t offset = 0;
+        for (const auto& curve : curves) {
+            size_t nNodes = curve.size();
+            bool isClosed = (curve[0] == curve[nNodes - 1]);
+            size_t ub = isClosed ? nNodes - 1 : nNodes;
+            for (size_t i = 0; i < ub; i++) {
+                Vector3 pos = vertexPositions[curve[i]];
+                f << "v " << pos[0] << " " << pos[1] << " " << pos[2] << "\n";
+            }
+            f << "l ";
+            for (size_t i = 0; i < nNodes - 1; i++) {
+                f << (offset + i) + 1 << " "; // OBJ files are 1-indexed
+            }
+            f << offset + (nNodes - 1) % ub + 1 << "\n";
+            offset += ub;
+        }
+        f.close();
+        std::cerr << "File " << cFilename << " written succesfully." << std::endl;
+    } else {
+        std::cerr << "Could not save curves '" << cFilename << "'!" << std::endl;
+    }
+}
+
 void exportCurves(const pointcloud::PointData<Vector3>& positions,
                   const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& dir) {
 
@@ -726,6 +757,134 @@ void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const point
         file.close();
     } else {
         std::cerr << "Could not save file '" << filename << "'!" << std::endl;
+    }
+}
+
+void exportVectors(VertexPositionGeometry& geometry, const VertexData<Vector2>& vectorField,
+                   const std::string& filepath, double sampleSparsity) {
+
+    SurfaceMesh& mesh = geometry.mesh;
+    VertexData<Vector3> vectorFieldR3(mesh);
+    geometry.requireVertexTangentBasis();
+    for (Vertex v : mesh.vertices()) {
+        vectorFieldR3[v] = vectorField[v][0] * geometry.vertexTangentBasis[v][0] +
+                           vectorField[v][1] * geometry.vertexTangentBasis[v][1];
+    }
+    geometry.unrequireVertexTangentBasis();
+    exportVectors(geometry, vectorFieldR3, filepath, sampleSparsity);
+}
+
+void exportVectors(VertexPositionGeometry& geometry, const VertexData<Vector3>& vectorField,
+                   const std::string& filepath, double sampleSparsity) {
+
+    // Create a corresponding ManifoldSurfaceMesh
+    std::unique_ptr<ManifoldSurfaceMesh> manifoldMesh;
+    std::unique_ptr<VertexPositionGeometry> manifoldGeom;
+    SurfaceMesh& mesh = geometry.mesh;
+    if (mesh.isManifold() && mesh.isOriented()) {
+        manifoldMesh = mesh.toManifoldMesh();
+        manifoldGeom = geometry.reinterpretTo(*manifoldMesh);
+        for (Face f : manifoldMesh->faces()) manifoldMesh->triangulate(f);
+    } else if (sampleSparsity > 0.) {
+        return;
+    }
+
+    std::vector<Vertex> sampledVertices;
+    Vector3 bboxMin, bboxMax;
+    std::tie(bboxMin, bboxMax) = boundingBox(geometry);
+    double spacing = (bboxMax - bboxMin).norm() / 100.;
+    if (sampleSparsity > 0.) {
+        // Poisson disk sample.
+        PoissonDiskOptions options;
+        options.minDistAvoidance = (sampleSparsity > 0) ? sampleSparsity * spacing : spacing;
+        PoissonDiskSampler sampler(*manifoldMesh, *manifoldGeom);
+        std::vector<SurfacePoint> samples = sampler.sample(options);
+        for (size_t i = 0; i < samples.size(); i++) {
+            samples[i] = reinterpretTo(samples[i], mesh);
+            // Snap to a vertex.
+            switch (samples[i].type) {
+                case (SurfacePointType::Vertex): {
+                    sampledVertices.push_back(samples[i].vertex);
+                    break;
+                }
+                case (SurfacePointType::Edge): {
+                    Edge e = samples[i].edge;
+                    Vertex v = (samples[i].tEdge < 0.5) ? e.firstVertex() : e.secondVertex();
+                    sampledVertices.push_back(v);
+                    break;
+                }
+                case (SurfacePointType::Face): {
+                    Vertex v;
+                    double maxVal = 0;
+                    int idx = 0;
+                    for (Vertex vi : samples[i].face.adjacentVertices()) {
+                        if (samples[i].faceCoords[idx] > maxVal) {
+                            maxVal = samples[i].faceCoords[idx];
+                            v = vi;
+                        }
+                        idx++;
+                    }
+                    sampledVertices.push_back(v);
+                    break;
+                }
+            }
+        }
+    } else {
+        // Sampling restricted to nonzero vector entries.
+        std::vector<Vector3> otherPos;
+        for (Vertex v : mesh.vertices()) {
+            if (vectorField[v].norm() > 1e-5) {
+                Vector3 pos = geometry.vertexPositions[v];
+                bool add = true;
+                for (Vector3 other : otherPos) {
+                    if ((other - pos).norm() < spacing) {
+                        add = false;
+                        break;
+                    }
+                }
+                if (add) {
+                    otherPos.push_back(pos);
+                    sampledVertices.push_back(v);
+                }
+            }
+        }
+    }
+    size_t nSamples = sampledVertices.size();
+    std::cerr << "nSamples: " << nSamples << std::endl;
+
+    // Evaluate the vector field at the samples.
+    std::vector<Vector3> vectors(nSamples); // vectors at the samples
+    for (size_t i = 0; i < nSamples; i++) {
+        vectors[i] = vectorField[sampledVertices[i]];
+    }
+
+    std::string filename = filepath + "Origins.obj";
+    std::string filename_n = filepath + "Directions.obj";
+    std::fstream file, file_n;
+    // Store tail positions of vectors.
+    file.open(filename, std::ios::out | std::ios::trunc);
+    if (file.is_open()) {
+        for (size_t i = 0; i < nSamples; i++) {
+            Vector3 pos = geometry.vertexPositions[sampledVertices[i]];
+            file << "v " << pos[0] << " " << pos[1] << " " << pos[2] << "\n";
+        }
+        std::cerr << "File " << filename << " written succesfully." << std::endl;
+        file.close();
+    } else {
+        std::cerr << "Could not save file '" << filename << "'!" << std::endl;
+    }
+
+    // Store vector directions.
+    file_n.open(filename_n, std::ios::out | std::ios::trunc);
+    if (file_n.is_open()) {
+        for (size_t i = 0; i < nSamples; i++) {
+            Vector3 vec = vectors[i];
+            file_n << "v " << vec[0] << " " << vec[1] << " " << vec[2] << "\n";
+        }
+        std::cerr << "File " << filename_n << " written succesfully." << std::endl;
+        file_n.close();
+    } else {
+        std::cerr << "Could not save file '" << filename_n << "'!" << std::endl;
     }
 }
 

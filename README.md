@@ -8,7 +8,7 @@ This Github repository demonstrates the _Signed Heat Method (SHM)_ on **2D surfa
 
 If you're interested in using the Signed Heat Method in 3D volumetric domains, go to [this Github repository](https://github.com/nzfeng/signed-heat-3d).
 
-![teaser image](media/teaser.png)
+![teaser image](media/Teaser.png)
 
 If this code contributes to academic work, please cite as:
 ```bibtex

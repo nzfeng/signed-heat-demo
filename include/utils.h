@@ -2,6 +2,7 @@
 
 #include "geometrycentral/pointcloud/point_position_geometry.h"
 #include "geometrycentral/surface/integer_coordinates_intrinsic_triangulation.h"
+#include "geometrycentral/surface/poisson_disk_sampler.h"
 #include "geometrycentral/surface/signed_heat_method.h"
 #include "geometrycentral/surface/surface_mesh.h"
 #include "geometrycentral/surface/surface_point.h"
@@ -62,6 +63,9 @@ std::vector<Curve> extractLevelsetAsCurves(IntrinsicGeometryInterface& geom, con
 void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<Curve>& curves,
                   const std::vector<SurfacePoint>& points, const std::string& dir = "../output");
 
+void exportCurves(const VertexData<Vector3>& vertexPositions, const std::vector<std::vector<Vertex>>& curves,
+                  const std::string& dir = "../output");
+
 void exportCurves(const pointcloud::PointData<Vector3>& positions,
                   const std::vector<std::vector<pointcloud::Point>>& curves, const std::string& dir = "../output");
 
@@ -88,6 +92,12 @@ void exportSDF(const pointcloud::PointData<Vector3>& pointPositions, const point
 /* Normalize SDF data so it maps onto (custom) divergent colormap correctly. */
 Vector<double> normalizeSDF(const Vector<double>& u, const std::string& dir = "", bool useBounds = false,
                             double lowerBound = -1, double upperBound = -1);
+
+void exportVectors(VertexPositionGeometry& geometry, const VertexData<Vector2>& vectorField,
+                   const std::string& filename, double sampleSparsity = -1);
+
+void exportVectors(VertexPositionGeometry& geometry, const VertexData<Vector3>& vectorField,
+                   const std::string& filename, double sampleSparsity = -1);
 
 // ===================== MESH MUTATION
 

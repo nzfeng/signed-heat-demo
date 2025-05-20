@@ -1,6 +1,7 @@
 #include "geometrycentral/pointcloud/point_cloud_heat_solver.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/meshio.h"
+#include "geometrycentral/surface/polygon_mesh_heat_solver.h"
 #include "geometrycentral/surface/surface_mesh_factories.h"
 #include "geometrycentral/surface/transfer_functions.h"
 
@@ -61,9 +62,10 @@ SignedHeatOptions SHM_OPTIONS;
 int CONSTRAINT_MODE = static_cast<int>(LevelSetConstraint::ZeroSet);
 bool SOLVE_AS_POINT_CLOUD = false;
 bool VIZ = true;
-bool VERBOSE, HEADLESS, IS_POLY;
+bool VERBOSE, HEADLESS;
 std::unique_ptr<SignedHeatSolver> signedHeatSolver, intrinsicSolver;
 std::unique_ptr<pointcloud::PointCloudHeatSolver> pointCloudSolver;
+std::unique_ptr<PolygonMeshHeatSolver> polygonSolver;
 VertexData<double> PHI, PHI_CS;
 pointcloud::PointData<double> PHI_POINTS;
 
@@ -178,16 +180,18 @@ void solve() {
         if (!HEADLESS) psCloud->addScalarQuantity("GSD", PHI_POINTS)->setIsolinesEnabled(true)->setEnabled(true);
 
     } else if (MESH_MODE == MeshMode::Polygon) {
-        throw std::logic_error("SHM on polygon meshes is not yet released - ETA September-October 2024");
-        // TODO: Set up polygon mesh solver
-        // signedHeatSolver->setDiffusionTimeCoefficient(TCOEF);
-        // Vector<double> phi = signedHeatSolver->solve(CURVES, POINTS, SHM_OPTIONS);
 
-        // if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", phi)->setEnabled(true);
-        // if (EXPORT_RESULT) {
-        //     exportCurves(geometry->vertexPositions, CURVES, POINTS, OUTPUT_DIR + "/source.obj");
-        //     exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
-        // }
+        if (TIME_UPDATED) polygonSolver.reset(new PolygonMeshHeatSolver(*geometry, TCOEF));
+
+        t1 = high_resolution_clock::now();
+        PHI = polygonSolver->computeSignedDistance(POLYGON_CURVES, static_cast<LevelSetConstraint>(CONSTRAINT_MODE));
+        t2 = high_resolution_clock::now();
+        ms_fp = t2 - t1;
+        if (VERBOSE) {
+            std::cerr << "min: " << PHI.toVector().minCoeff() << "\tmax: " << PHI.toVector().maxCoeff() << std::endl;
+            std::cerr << "Solve time (s): " << ms_fp.count() / 1000. << std::endl;
+        }
+        if (!HEADLESS) psMesh->addVertexSignedDistanceQuantity("GSD", PHI)->setEnabled(true);
     }
 
     TIME_UPDATED = false;
@@ -214,7 +218,8 @@ void callback() {
             exportCurves(pointGeom->positions, POINTS_CURVES, OUTPUT_DIR + "/source.obj");
             exportSDF(pointGeom->positions, PHI_POINTS, OUTPUT_FILENAME);
         } else if (MESH_MODE == MeshMode::Polygon) {
-            // TODO
+            exportCurves(geometry->vertexPositions, POLYGON_CURVES, OUTPUT_DIR);
+            exportSDF(*geometry, PHI, OUTPUT_FILENAME, USE_BOUNDS, LOWER_BOUND, UPPER_BOUND);
         }
     }
     if (LAST_SOLVER_MODE == SolverMode::IntrinsicMesh)
@@ -239,9 +244,6 @@ void callback() {
         ImGui::InputFloat("upper", &UPPER_BOUND);
         ImGui::TreePop();
     }
-
-    //     ImGui::TreePop();
-    // }
 
     if (MESH_MODE == MeshMode::Triangle && mesh->isManifold() && CONSTRAINED_GEOM) {
         ImGui::RadioButton("Solve on extrinsic mesh", &SOLVER_MODE, SolverMode::ExtrinsicMesh);
@@ -347,8 +349,12 @@ int main(int argc, char** argv) {
         // }
         // geometry->refreshQuantities();
 
-        if (!mesh->isTriangular()) MESH_MODE = MeshMode::Polygon;
-        signedHeatSolver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*geometry));
+        if (!mesh->isTriangular()) {
+            MESH_MODE = MeshMode::Polygon;
+            polygonSolver = std::unique_ptr<PolygonMeshHeatSolver>(new PolygonMeshHeatSolver(*geometry));
+        } else {
+            signedHeatSolver = std::unique_ptr<SignedHeatSolver>(new SignedHeatSolver(*geometry));
+        }
     }
 
     // Load source geometry.
