@@ -50,6 +50,7 @@ std::tuple<std::vector<Vector3>, std::vector<Vector3>> readPointCloud(const std:
 std::tuple<std::vector<Curve>, std::vector<SurfacePoint>> readInput(SurfaceMesh& mesh, const std::string& filename);
 std::vector<std::vector<Vertex>> readCurveVertices(SurfaceMesh& mesh, const std::string& filename);
 std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointCloud& cloud, const std::string& filename);
+std::vector<Curve> preprocessCurves(const std::vector<Curve>& curves);
 
 std::vector<std::vector<std::array<size_t, 2>>>
 getCurveComponents(SurfaceMesh& mesh, const std::vector<SurfacePoint>& curveNodes,

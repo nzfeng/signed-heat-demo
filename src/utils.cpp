@@ -341,6 +341,30 @@ std::vector<std::vector<pointcloud::Point>> readCurvePoints(pointcloud::PointClo
     return curves;
 }
 
+// Warning: logic duplicated from geometry-central
+std::vector<Curve> preprocessCurves(const std::vector<Curve>& curves) {
+    std::vector<Curve> newCurves;
+    for (const Curve& curve : curves) {
+        newCurves.emplace_back();
+        newCurves.back().isSigned = curve.isSigned;
+        size_t nNodes = curve.nodes.size();
+        for (size_t i = 0; i < nNodes - 1; i++) {
+            const SurfacePoint& pA = curve.nodes[i];
+            const SurfacePoint& pB = curve.nodes[i + 1];
+            newCurves.back().nodes.push_back(pA);
+            Face commonFace = sharedFace(pA, pB);
+            if (commonFace == Face()) {
+                // Create new curve
+                newCurves.emplace_back();
+                newCurves.back().isSigned = curve.isSigned;
+            }
+        }
+        // Don't forget the last point
+        newCurves.back().nodes.push_back(curve.nodes[nNodes - 1]);
+    }
+    return newCurves;
+}
+
 std::vector<std::vector<std::array<size_t, 2>>>
 getCurveComponents(SurfaceMesh& mesh, const std::vector<SurfacePoint>& curveNodes,
                    const std::vector<std::array<size_t, 2>>& curveEdges) {

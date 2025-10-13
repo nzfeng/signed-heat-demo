@@ -197,7 +197,143 @@ void solve() {
     TIME_UPDATED = false;
 }
 
+Vector<double> unsignedHeatMethodStepsIIandIII(IntrinsicGeometryInterface& geom, const Vector<double>& u) {
+
+    SurfaceMesh& mesh = geom.mesh;
+    size_t V = mesh.nVertices();
+    Vector<double> div = Vector<double>::Zero(V);
+    for (Face f : mesh.faces()) {
+        // taken from geometry-central implementation
+        Vector2 gradUDir = Vector2::zero();
+        for (Halfedge he : f.adjacentHalfedges()) {
+            Vector2 ePerp = geom.halfedgeVectorsInFace[he.next()].rotate90();
+            gradUDir += ePerp * u(geom.vertexIndices[he.vertex()]);
+        }
+        gradUDir = gradUDir.normalizeCutoff();
+
+        for (Halfedge he : f.adjacentHalfedges()) {
+            double val = geom.halfedgeCotanWeights[he] * dot(geom.halfedgeVectorsInFace[he], gradUDir);
+            div[geom.vertexIndices[he.tailVertex()]] += val;
+            div[geom.vertexIndices[he.tipVertex()]] += -val;
+        }
+    }
+    SparseMatrix<double> C = geom.cotanLaplacian;
+    Vector<double> phi = solvePositiveDefinite(C, div);
+    double shift = phi.minCoeff();
+    phi -= shift * Vector<double>::Ones(V);
+    return phi;
+}
+
+VertexData<double> unsignedHeatMethod(IntrinsicGeometryInterface& geom, const std::vector<Curve>& curves,
+                                      const std::vector<SurfacePoint>& points) {
+
+    SurfaceMesh& mesh = geom.mesh;
+
+    geom.requireVertexLumpedMassMatrix();
+    geom.requireCotanLaplacian();
+    geom.requireEdgeLengths();
+    geom.requireVertexIndices();
+    geom.requireHalfedgeCotanWeights();
+    geom.requireHalfedgeVectorsInFace();
+
+    size_t V = mesh.nVertices();
+
+    // Compute mean node spacing.
+    double h = 0;
+    for (Edge e : mesh.edges()) {
+        h += geom.edgeLengths[e];
+    }
+    h /= mesh.nEdges();
+    double t = h * h;
+
+    // Get operators
+    SparseMatrix<double> C = geom.cotanLaplacian;
+    SparseMatrix<double> M = geom.vertexLumpedMassMatrix;
+    SparseMatrix<double> heatOp = M + t * C;
+
+    PositiveDefiniteSolver<double> heatSolver(heatOp);
+
+    Vector<double> RHS = Vector<double>::Zero(V);
+    // Project curves, which are always assumed to be unsigned
+    for (const Curve& curve : curves) {
+        size_t nNodes = curve.nodes.size();
+        for (size_t i = 0; i < nNodes - 1; i++) {
+            const SurfacePoint& pA = curve.nodes[i];
+            const SurfacePoint& pB = curve.nodes[i + 1];
+            Edge commonEdge = sharedEdge(pA, pB);
+            if (commonEdge != Edge()) {
+                double length = geom.edgeLengths[commonEdge];
+                Vertex vA = commonEdge.firstVertex();
+                Vertex vB = commonEdge.secondVertex();
+                size_t idxA = geom.vertexIndices[vA];
+                size_t idxB = geom.vertexIndices[vB];
+                RHS[idxA] += 0.5 * length;
+                RHS[idxB] += 0.5 * length;
+                continue;
+            }
+            Face commonFace = sharedFace(pA, pB);
+            SurfacePoint pAInFace = pA.inFace(commonFace);
+            SurfacePoint pBInFace = pB.inFace(commonFace);
+            Vector3 mCoords = 0.5 * (pAInFace.faceCoords + pBInFace.faceCoords);
+            BarycentricVector vec(pAInFace, pBInFace);
+            double length = vec.norm(geom);
+            size_t rIdx = 0;
+            for (Vertex v : commonFace.adjacentVertices()) {
+                size_t vIdx = geom.vertexIndices[v];
+                RHS[vIdx] += length * mCoords[rIdx];
+                rIdx++;
+            }
+        }
+    }
+
+    // Project points (assumed to be always at vertices, and always unsigned)
+    for (const SurfacePoint& p : points) {
+        if (p.type != SurfacePointType::Vertex) continue;
+        size_t vIdx = geom.vertexIndices[p.vertex];
+        RHS[vIdx] += 1;
+        // TODO: handle barycentric points (will probably never need to compare against this though)
+    }
+    Vector<double> u_neumann = heatSolver.solve(RHS);
+
+    Vector<bool> setAMembership = Vector<bool>::Ones(V); // true if interior
+    for (Vertex v : mesh.vertices()) {
+        if (v.isBoundary()) {
+            setAMembership[geom.vertexIndices[v]] = false;
+        }
+    }
+    int nB = V - setAMembership.cast<int>().sum(); // # of boundary vertices
+    Vector<double> bcVals = Vector<double>::Zero(nB);
+    BlockDecompositionResult<double> decomp = blockDecomposeSquare(heatOp, setAMembership, true);
+    Vector<double> rhsValsA, rhsValsB;
+    decomposeVector(decomp, RHS, rhsValsA, rhsValsB);
+    Vector<double> combinedRHS = rhsValsA;
+    shiftDiagonal(decomp.AA, 1e-8);
+    Vector<double> Aresult = solvePositiveDefinite(decomp.AA, combinedRHS);
+    Vector<double> u_dirichlet = reassembleVector(decomp, Aresult, bcVals);
+
+    Vector<double> u = 0.5 * (u_neumann + u_dirichlet);
+    Vector<double> phi = unsignedHeatMethodStepsIIandIII(geom, u);
+    return VertexData<double>(mesh, phi);
+}
+
 void callback() {
+
+    if (ImGui::Button("Solve (unsigned heat method)")) {
+        if (SOLVER_MODE == SolverMode::ExtrinsicMesh) {
+            PHI = unsignedHeatMethod(*geometry, CURVES, POINTS);
+            psMesh->addVertexSignedDistanceQuantity("UDF", PHI)->setEnabled(true);
+            LAST_SOLVER_MODE = SolverMode::ExtrinsicMesh;
+        } else {
+            ensureHaveIntrinsicSolver();
+            determineSourceGeometryOnIntrinsicTriangulation(*intTri, curvesOnManifold, pointsOnManifold,
+                                                            curvesOnIntrinsic, pointsOnIntrinsic);
+            PHI_CS = unsignedHeatMethod(*intTri, curvesOnIntrinsic, pointsOnIntrinsic);
+            PHI = transferBtoA(*intTri, PHI_CS, TransferMethod::L2);
+            psMesh->addVertexSignedDistanceQuantity("UDF", PHI)->setEnabled(true);
+            visualizeOnCommonSubdivision(*intTri, *manifoldGeom, csPositions, csGeom, PHI_CS, "UDF", true, true);
+            LAST_SOLVER_MODE = SolverMode::IntrinsicMesh;
+        }
+    }
 
     if (ImGui::Button("Solve")) {
         solve();
@@ -363,6 +499,7 @@ int main(int argc, char** argv) {
         switch (MESH_MODE) {
             case (MeshMode::Triangle): {
                 std::tie(CURVES, POINTS) = readInput(*mesh, filename);
+                CURVES = preprocessCurves(CURVES);
                 CONSTRAINED_GEOM = isSourceGeometryConstrained(CURVES, POINTS);
                 break;
             }
